@@ -10,6 +10,7 @@ import type { EvoCheck } from '../systems/evolution';
 import type { PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
 import { WEATHER_NAMES } from '../systems/timeWeather';
+import { TouchControls } from './TouchControls';
 
 export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
@@ -76,6 +77,17 @@ export interface PauseCallbacks {
 
 const WEATHER_ICON: Record<Weather, string> = { clear: '☀', rain: '🌧', heat: '🔥' };
 
+const TOUCH_HELP: [string, string][] = [
+  ['Cần trái', 'Kéo để di chuyển'],
+  ['Đánh', 'Giữ để đánh liên tục, tự nhắm con gần nhất'],
+  ['Chạm màn hình', 'Đánh về hướng vừa chạm'],
+  ['Kỹ năng / Né', 'Nút tròn bên phải'],
+  ['Chạy', 'Bật/tắt chạy nhanh'],
+  ['Dùng', 'Ăn / uống / tương tác (hoặc chạm vào lời nhắc)'],
+  ['Ô túi', 'Chạm để ăn đồ mang theo'],
+  ['⛶', 'Toàn màn hình'],
+];
+
 export class UI {
   readonly root: HTMLElement;
   private menu!: HTMLElement;
@@ -90,6 +102,9 @@ export class UI {
   private els: Record<string, HTMLElement> = {};
   private charRefresh: (() => CharPanelData) | null = null;
   private charEvolve: (() => void) | null = null;
+  touch!: TouchControls;
+  onInvTap: ((slot: number) => void) | null = null;
+  onPromptTap: (() => void) | null = null;
 
   constructor() {
     this.root = document.getElementById('ui') as HTMLElement;
@@ -316,6 +331,12 @@ export class UI {
       <div class="debug hidden" data-e="debug"></div>`;
     this.hud.querySelectorAll<HTMLElement>('[data-e]').forEach((e) => (this.els[e.dataset.e as string] = e));
     this.toastBox = this.els.toasts;
+    this.touch = new TouchControls(this.hud);
+    this.els.inv.addEventListener('click', (e) => {
+      const slot = (e.target as HTMLElement).closest('.slot');
+      if (slot) this.onInvTap?.(Array.prototype.indexOf.call(this.els.inv.children, slot));
+    });
+    this.els.prompt.addEventListener('click', () => this.onPromptTap?.());
   }
 
   showHud(v: boolean): void {
@@ -376,6 +397,7 @@ export class UI {
       (el.querySelector('.cdtxt') as HTMLElement).textContent = s.cdLeft > 0.05 && !s.locked ? s.cdLeft.toFixed(1) : '';
       el.classList.toggle('ready', !s.locked && s.cd <= 0);
     });
+    this.touch.updateSkills(d.skills);
 
     if (d.target) {
       E.target.classList.remove('hidden');
@@ -517,6 +539,7 @@ export class UI {
       <h3>Âm thanh</h3>
       ${this.settingsHtml(s)}
       <h3>Điều khiển</h3>
+      ${this.touch.enabled ? `<div class="controls-list">${TOUCH_HELP.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div><h3>Bàn phím</h3>` : ''}
       <div class="controls-list">${controls.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div>
       ${cb.debug ? `<h3>Debug</h3><div class="row" style="justify-content:flex-start"><button data-d="hit">Hitbox</button><button data-d="god">Bất tử</button><button data-d="evo">Đủ điều kiện tiến hóa</button><button data-d="time">+3 giờ</button></div><div style="font-size:12px" data-d="flags">${esc(cb.debug.flags())}</div>` : ''}`;
     const o = this.openOverlay('pause', html);

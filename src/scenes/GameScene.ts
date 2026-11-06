@@ -60,6 +60,8 @@ export class GameScene extends Phaser.Scene {
   private dead = false;
   private started = false;
   private attackQueued = false;
+  private tapAim = false;
+  private moveAim = 0;
   private lastCombatAt = -99;
   private lastDamageCause = '';
   private autosaveT = 0;
@@ -96,6 +98,8 @@ export class GameScene extends Phaser.Scene {
     this.dead = false;
     this.started = false;
     this.attackQueued = false;
+    this.tapAim = false;
+    this.moveAim = 0;
     this.lastCombatAt = -99;
     this.autosaveT = 0;
     this.lastSector = -1;
@@ -182,8 +186,17 @@ export class GameScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       audio.unlock();
-      if (p.leftButtonDown() && !app.ui.modalOpen && !this.paused) this.attackQueued = true;
+      if ((p.wasTouch || p.leftButtonDown()) && !app.ui.modalOpen && !this.paused) {
+        this.attackQueued = true;
+        this.tapAim = true;
+      }
     });
+    app.ui.onInvTap = (i) => {
+      if (!app.ui.modalOpen && !this.paused && !this.dead && this.player.alive && !this.evo.active && i < this.player.state.slots) this.eatSlot(i);
+    };
+    app.ui.onPromptTap = () => {
+      if (!app.ui.modalOpen && !this.paused && this.interaction && !this.evo.active) this.interaction.run();
+    };
   }
 
   private just(k: KeyName): boolean {
@@ -192,6 +205,7 @@ export class GameScene extends Phaser.Scene {
 
   private readInput(): PlayerInput {
     const k = this.keys;
+    const T = app.ui.touch;
     const blocked = app.ui.modalOpen || this.paused || this.dead;
     let mx = 0;
     let my = 0;
@@ -200,31 +214,66 @@ export class GameScene extends Phaser.Scene {
       if (k.D.isDown || k.RIGHT.isDown) mx += 1;
       if (k.W.isDown || k.UP.isDown) my -= 1;
       if (k.S.isDown || k.DOWN.isDown) my += 1;
+      if (mx === 0 && my === 0 && T.enabled) {
+        mx = T.mx;
+        my = T.my;
+      }
     }
-    const ptr = this.input.activePointer;
-    const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
-    const aim = Math.atan2(wp.y - (this.player.y - this.player.radius * 0.6), wp.x - this.player.x);
+    if (mx !== 0 || my !== 0) this.moveAim = Math.atan2(my, mx);
+    const q = this.just('Q') || T.take('q');
+    const r = this.just('R') || T.take('r');
+    const dodge = this.just('SPACE') || T.take('dodge');
+    let aim: number;
+    if (T.enabled && !this.tapAim) aim = this.autoAim();
+    else {
+      const ptr = this.input.activePointer;
+      const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+      aim = Math.atan2(wp.y - (this.player.y - this.player.radius * 0.6), wp.x - this.player.x);
+    }
     const inp: PlayerInput = {
       mx,
       my,
-      sprint: !blocked && k.SHIFT.isDown,
+      sprint: !blocked && (k.SHIFT.isDown || (T.enabled && T.sprint)),
       aim,
-      attack: !blocked && this.attackQueued,
-      q: !blocked && this.just('Q'),
-      r: !blocked && this.just('R'),
-      dodge: !blocked && this.just('SPACE'),
+      attack: !blocked && (this.attackQueued || T.attackHeld),
+      q: !blocked && q,
+      r: !blocked && r,
+      dodge: !blocked && dodge,
     };
     this.attackQueued = false;
+    this.tapAim = false;
     return inp;
   }
 
+  /** Touch aiming: nearest creature in reach (last target first), else the movement direction. */
+  private autoAim(): number {
+    const P = this.player;
+    const oy = P.y - P.radius * 0.6;
+    const reach = 200;
+    let best: Npc | null = null;
+    if (this.lastTarget?.alive && Math.hypot(this.lastTarget.x - P.x, this.lastTarget.y - P.y) <= reach) best = this.lastTarget;
+    else {
+      let bd = reach;
+      for (const n of this.npcs.creaturesNear(P.x, P.y, reach)) {
+        const d = Math.hypot(n.x - P.x, n.y - P.y);
+        if (n.alive && d < bd) {
+          bd = d;
+          best = n;
+        }
+      }
+    }
+    if (best) return Math.atan2(best.y - best.radius * 0.6 - oy, best.x - P.x);
+    return this.moveAim;
+  }
+
   private handleMenuKeys(): void {
-    if (this.just('ESC')) {
+    const T = app.ui.touch;
+    if (this.just('ESC') || T.take('pause')) {
       if (app.ui.openPanel === 'pause') this.resume();
       else if (app.ui.openPanel) app.ui.closeOverlay();
       else if (!app.ui.modalOpen && !this.dead) this.openPause();
     }
-    if (this.just('TAB') && !this.paused && !this.dead) {
+    if ((this.just('TAB') || T.take('char')) && !this.paused && !this.dead) {
       if (app.ui.openPanel === 'char') app.ui.closeOverlay();
       else if (!app.ui.modalOpen) this.openCharPanel();
     }
@@ -238,6 +287,7 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta, 50) / 1000;
 
     if (this.paused) {
+      app.ui.touch.endFrame();
       this.drawOverlay();
       return;
     }
@@ -312,6 +362,7 @@ export class GameScene extends Phaser.Scene {
     if (this.hudT <= 0) {
       this.hudT = 0.1;
       app.ui.updateHud(this.hudData());
+      app.ui.touch.setMarkerVisible(S.markersUnlocked);
       if (DEBUG_ENABLED) app.ui.setDebug(this.debugText());
     }
     this.minimapT -= dt;
@@ -329,12 +380,16 @@ export class GameScene extends Phaser.Scene {
       this.autosaveT = 0;
       this.saveNow(false);
     }
+    app.ui.touch.endFrame();
   }
 
   private handleActionKeys(): void {
     const P = this.player;
-    if (this.just('E') && this.interaction && !this.evo.active) this.interaction.run();
-    if (this.just('F') && !this.evo.active && !P.busy) {
+    const T = app.ui.touch;
+    const interact = this.just('E') || T.take('interact');
+    const rest = this.just('F') || T.take('rest');
+    if (interact && this.interaction && !this.evo.active) this.interaction.run();
+    if (rest && !this.evo.active && !P.busy) {
       if (P.rest.toggle()) {
         if (P.rest.mode === 'resting') app.ui.toast(P.inShelter ? 'Nằm nghỉ trong nơi trú ẩn.' : 'Nằm nghỉ ngoài trời — hãy cẩn thận!');
       }
@@ -343,7 +398,7 @@ export class GameScene extends Phaser.Scene {
     slotKeys.forEach((k, i) => {
       if (this.just(k) && i < P.state.slots && !this.evo.active) this.eatSlot(i);
     });
-    if (this.just('M')) this.toggleMarker();
+    if (this.just('M') || T.take('marker')) this.toggleMarker();
     if (DEBUG_ENABLED) {
       if (this.just('F6')) this.debug.hitbox = !this.debug.hitbox;
       if (this.just('F7')) this.toggleGod();
@@ -1144,5 +1199,8 @@ export class GameScene extends Phaser.Scene {
     app.ui.evoProgress(false);
     app.ui.setPrompt(null);
     app.ui.setDebug(null);
+    app.ui.onInvTap = null;
+    app.ui.onPromptTap = null;
+    app.ui.touch.reset();
   }
 }

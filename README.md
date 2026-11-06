@@ -33,6 +33,16 @@ npm test           # chạy kiểm thử logic (Vitest)
 | Tab | Bảng nhân vật & điều kiện tiến hóa |
 | Esc | Tạm dừng · cài đặt âm thanh · lưu · thoát |
 
+### Điện thoại / máy tính bảng
+
+Nút cảm ứng tự hiện trên thiết bị màn hình cảm ứng (hoặc thêm `?touch` vào URL để bật thủ công). Nên xoay ngang màn hình.
+
+- Cần điều khiển ảo (nửa trái màn hình): di chuyển.
+- **Đánh**: giữ để đánh liên tục, tự nhắm con gần nhất; chạm vào bản đồ để đánh về hướng đó.
+- Nút kỹ năng Q/R, **Né**, **Chạy** (bật/tắt), **Dùng** (tương tác), **Nghỉ**.
+- Chạm ô trong túi để ăn; chạm khung gợi ý tương tác để thực hiện.
+- Hàng nút trên cùng: **Nhân vật**, **Dấu** (khi đã mở khóa), toàn màn hình, tạm dừng.
+
 Âm thanh chỉ bắt đầu sau lần bấm/nhấn phím đầu tiên (quy định của trình duyệt).
 
 ## Vòng chơi

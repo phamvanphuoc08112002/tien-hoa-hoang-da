@@ -24,12 +24,18 @@ body {
   font-family: var(--font);
   color: var(--text);
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior: none;
 }
 
 #game-root {
   position: fixed;
   inset: 0;
   outline: none;
+  touch-action: none;
 }
 
 #game-root canvas {
@@ -98,6 +104,9 @@ button.danger {
   background: radial-gradient(ellipse at 50% 30%, #2f5a36 0%, #183022 50%, #0b1410 100%);
   flex-direction: column;
   gap: 14px;
+  overflow: auto;
+  justify-content: safe center;
+  padding: 12px;
 }
 #menu h1 {
   font-size: 56px;
@@ -615,7 +624,7 @@ kbd {
   border: 2px solid var(--panel-border);
   border-radius: 14px;
   padding: 18px 22px;
-  min-width: 380px;
+  min-width: min(380px, 94vw);
   max-width: min(860px, 94vw);
   max-height: 90vh;
   overflow: auto;
@@ -754,4 +763,310 @@ kbd {
 #loading {
   background: #0d1210;
   font-size: 20px;
+}
+
+/* ---------- Touch controls ---------- */
+#touch {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: none;
+}
+body.touch #touch {
+  display: block;
+}
+body.touch #hud .hint,
+body.touch #hud .skillbar {
+  display: none;
+}
+.inventory .slot,
+#hud .prompt {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.joy-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 42%;
+  height: 62%;
+  pointer-events: auto;
+  touch-action: none;
+}
+.joy-base {
+  position: absolute;
+  left: calc(env(safe-area-inset-left, 0px) + 90px);
+  top: calc(100% - 95px);
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  opacity: 0.55;
+}
+.joy-base.active {
+  opacity: 1;
+}
+.joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+}
+.tbtns {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  bottom: 10px;
+  width: 250px;
+  height: 210px;
+}
+.tb {
+  position: absolute;
+  width: 62px;
+  height: 62px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(20, 26, 36, 0.62);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow: hidden;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: none;
+}
+.tb span {
+  position: relative;
+  z-index: 1;
+  padding: 0 4px;
+}
+.tb .cd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+.tb.down {
+  background: rgba(255, 207, 74, 0.45);
+  transform: scale(0.94);
+}
+.tb.locked {
+  opacity: 0.4;
+}
+.tb.big {
+  width: 88px;
+  height: 88px;
+  right: 6px;
+  bottom: 6px;
+  font-size: 15px;
+  border-color: rgba(255, 140, 110, 0.8);
+  background: rgba(120, 40, 30, 0.55);
+}
+.tb[data-b='q'] {
+  right: 104px;
+  bottom: 4px;
+}
+.tb[data-b='r'] {
+  right: 98px;
+  bottom: 76px;
+}
+.tb[data-b='dodge'] {
+  right: 26px;
+  bottom: 104px;
+}
+.tb.small {
+  width: 52px;
+  height: 52px;
+  font-size: 11px;
+}
+.tb[data-b='interact'] {
+  right: 176px;
+  bottom: 10px;
+  border-color: rgba(255, 207, 74, 0.8);
+}
+.tb[data-b='rest'] {
+  right: 168px;
+  bottom: 74px;
+}
+.tb[data-b='sprint'] {
+  right: 100px;
+  bottom: 146px;
+}
+.tb.toggle.on {
+  background: rgba(200, 224, 90, 0.5);
+  border-color: #c8e05a;
+}
+.ttop {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+}
+.tpill {
+  pointer-events: auto;
+  touch-action: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 16px;
+  background: rgba(14, 18, 26, 0.75);
+  border: 1px solid rgba(90, 105, 130, 0.8);
+  color: var(--text);
+}
+.rotate-hint {
+  display: none;
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(14, 18, 26, 0.85);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* Compact HUD on touch devices */
+body.touch #hud .vitals {
+  width: 190px;
+  padding: 5px 8px;
+  gap: 2px;
+  left: calc(env(safe-area-inset-left, 0px) + 6px);
+  top: 6px;
+}
+body.touch .vitals .name {
+  font-size: 13px;
+}
+body.touch .vbar {
+  grid-template-columns: 50px 1fr 34px;
+  gap: 4px;
+  font-size: 10.5px;
+}
+body.touch .vbar .track {
+  height: 7px;
+}
+body.touch #hud .status {
+  font-size: 10.5px;
+  min-height: 0;
+}
+body.touch #hud .topright {
+  top: 6px;
+  right: calc(env(safe-area-inset-right, 0px) + 6px);
+  gap: 4px;
+}
+body.touch #hud canvas.minimap {
+  width: 104px;
+  height: 104px;
+}
+body.touch #hud .clock {
+  font-size: 10.5px;
+  padding: 3px 7px;
+  gap: 6px;
+}
+body.touch #hud .bottom {
+  bottom: 6px;
+  gap: 4px;
+}
+body.touch #hud .xpbars {
+  width: min(260px, 34vw);
+}
+body.touch .inventory .slot {
+  width: 38px;
+  height: 38px;
+}
+body.touch #hud .prompt {
+  font-size: 13px;
+  padding: 6px 12px;
+}
+body.touch #hud .target {
+  top: 44px;
+  width: min(240px, 40vw);
+  font-size: 11px;
+}
+body.touch #hud .warnings {
+  top: 92px;
+}
+body.touch .warning {
+  font-size: 12px;
+}
+body.touch #hud .toasts {
+  top: 118px;
+  max-width: 46vw;
+}
+body.touch .toast {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+body.touch #hud .evo {
+  width: min(420px, 60vw);
+  font-size: 13px;
+}
+body.touch #hud .debug {
+  display: none;
+}
+@media (max-height: 520px) {
+  .panel {
+    padding: 10px 14px;
+    max-height: 96vh;
+  }
+  #menu {
+    gap: 8px;
+  }
+  #menu h1 {
+    font-size: 34px;
+  }
+  #menu .creatures img {
+    width: 64px;
+  }
+  #menu .sub {
+    margin-bottom: 4px;
+  }
+}
+@media (max-width: 520px) {
+  #menu h1 {
+    font-size: 36px;
+  }
+  #menu .buttons {
+    width: min(300px, 86vw);
+  }
+}
+@media (orientation: portrait) {
+  body.touch .rotate-hint {
+    display: block;
+    top: 40%;
+  }
+  body.touch .ttop {
+    top: 178px;
+    left: auto;
+    right: 6px;
+    transform: none;
+  }
+  body.touch #hud .bottom {
+    bottom: 232px;
+  }
+  body.touch #hud .xpbars {
+    width: 70vw;
+  }
+  body.touch #hud .toasts {
+    top: 220px;
+    max-width: 90vw;
+  }
+  body.touch #hud .target {
+    top: 136px;
+    left: 6px;
+    transform: none;
+    width: 50vw;
+  }
 }
