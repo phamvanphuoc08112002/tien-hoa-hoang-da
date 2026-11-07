@@ -1,5 +1,6 @@
 import { BALANCE } from '../config/balance';
 import { angleDiff } from '../core/math';
+import type { StatusSpec } from '../data/types';
 
 /** Damage after defense mitigation. `roll` in [0,1) supplies variance deterministically in tests. */
 export function computeDamage(power: number, mult: number, defense: number, roll: number): number {
@@ -48,6 +49,9 @@ export class HitInstance {
     public ownerId: number,
     public damageMult: number,
     public knockback: number,
+    public status: StatusSpec | null = null,
+    /** Skill id that produced the hit (used for mastery). */
+    public tag: string | null = null,
   ) {}
   tryHit(targetId: number): boolean {
     if (targetId === this.ownerId || this.hitIds.has(targetId)) return false;

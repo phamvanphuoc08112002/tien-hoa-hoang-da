@@ -57,6 +57,8 @@ export interface SurvivalContext {
   weather: Weather;
   /** Additional regen from buffs (fraction of max HP per second). */
   buffRegen: number;
+  /** Poison stops natural HP regeneration. */
+  poisoned?: boolean;
 }
 
 export interface SurvivalTick {
@@ -145,7 +147,7 @@ export function tickSurvival(
     const mult = (starving ? 1 : 0) + (dehydrated ? 1 : 0);
     damage = stats.maxHp * S.starveDamageFracPerSec * mult * dt;
     s.hp = Math.max(0, s.hp - damage);
-  } else if (s.hp > 0 && !ctx.inCombat && s.hunger >= S.hpRegenMinNeeds && s.thirst >= S.hpRegenMinNeeds && s.hp < stats.maxHp) {
+  } else if (s.hp > 0 && !ctx.inCombat && !ctx.poisoned && s.hunger >= S.hpRegenMinNeeds && s.thirst >= S.hpRegenMinNeeds && s.hp < stats.maxHp) {
     let mult = 1;
     if (sleeping) mult = S.sleepHpMult;
     else if (resting) mult = S.restHpMult;

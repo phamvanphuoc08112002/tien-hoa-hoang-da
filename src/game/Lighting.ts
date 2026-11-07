@@ -20,9 +20,11 @@ export class Lighting {
   private vision: Phaser.GameObjects.Image;
   private rain: Phaser.GameObjects.Graphics;
   private heatHaze: Phaser.GameObjects.Rectangle;
+  private bloodHaze: Phaser.GameObjects.Rectangle;
   private drops: Drop[] = [];
   private rainAmount = 0;
   private heatAmount = 0;
+  private bloodAmount = 0;
   private visionScale = 6;
   evoGlow: Phaser.GameObjects.Image;
   evoBeam: Phaser.GameObjects.Image;
@@ -30,7 +32,8 @@ export class Lighting {
   constructor(private scene: Phaser.Scene) {
     const cam = scene.cameras.main;
     this.tint = scene.add.rectangle(0, 0, cam.width, cam.height, 0xffffff).setOrigin(0).setScrollFactor(0).setDepth(DEPTH).setBlendMode(Phaser.BlendModes.MULTIPLY);
-    this.heatHaze = scene.add.rectangle(0, 0, cam.width, cam.height, 0xffd890, 0).setOrigin(0).setScrollFactor(0).setDepth(DEPTH + 1).setBlendMode(Phaser.BlendModes.ADD);
+    this.heatHaze = scene.add.rectangle(0, 0, cam.width, cam.height, 0xffd890).setOrigin(0).setScrollFactor(0).setDepth(DEPTH + 1).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
+    this.bloodHaze = scene.add.rectangle(0, 0, cam.width, cam.height, 0xff1a1a).setOrigin(0).setScrollFactor(0).setDepth(DEPTH + 2.5).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
     this.vision = scene.add.image(0, 0, 'vision').setScrollFactor(0).setDepth(DEPTH + 2).setAlpha(0);
     this.rain = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH + 3);
     this.evoGlow = scene.add.image(0, 0, 'glow').setDepth(DEPTH - 5).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
@@ -45,6 +48,7 @@ export class Lighting {
   resize(w: number, h: number): void {
     this.tint.setSize(w, h);
     this.heatHaze.setSize(w, h);
+    this.bloodHaze.setSize(w, h);
   }
 
   /** Visible radius in px for the current conditions (used for AI and UI too). */
@@ -55,7 +59,10 @@ export class Lighting {
     return r;
   }
 
-  update(dt: number, hour: number, weather: Weather, px: number, py: number, inForest: boolean): void {
+  update(dt: number, hour: number, weather: Weather, px: number, py: number, inForest: boolean, bloodMoon = false): void {
+    const targetBlood = bloodMoon ? nightFactor(hour) : 0;
+    this.bloodAmount += (targetBlood - this.bloodAmount) * Math.min(1, dt * 0.8);
+    this.bloodHaze.setAlpha(this.bloodAmount * (0.12 + 0.03 * Math.sin(this.scene.time.now / 600)));
     const cam = this.scene.cameras.main;
     this.tint.fillColor = ambientTint(hour, weather);
 
@@ -96,6 +103,7 @@ export class Lighting {
   destroy(): void {
     this.tint.destroy();
     this.heatHaze.destroy();
+    this.bloodHaze.destroy();
     this.vision.destroy();
     this.rain.destroy();
     this.evoGlow.destroy();

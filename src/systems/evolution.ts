@@ -8,7 +8,7 @@ export interface EvoContext {
 }
 
 export interface EvoCheck {
-  id: 'final' | 'maturity' | 'level' | 'hunger' | 'thirst' | 'combat' | 'shelter';
+  id: 'final' | 'maturity' | 'level' | 'trial' | 'hunger' | 'thirst' | 'combat' | 'shelter';
   label: string;
   ok: boolean;
 }
@@ -17,9 +17,17 @@ export function evolutionChecks(s: PlayerState, ctx: EvoContext): EvoCheck[] {
   const E = BALANCE.evolution;
   if (s.form >= 2) return [{ id: 'final', label: 'Đã đạt dạng tiến hóa cuối cùng', ok: false }];
   const reqLv = E.requiredLevel[s.form];
-  return [
+  const reqElites = E.requiredElites[s.form] ?? 0;
+  const checks: EvoCheck[] = [
     { id: 'maturity', label: `Thanh trưởng thành đầy (${Math.floor(s.maturity)}/${BALANCE.maturity.max})`, ok: isMaturityFull(s) },
     { id: 'level', label: `Cấp độ ≥ ${reqLv} (hiện tại ${s.level})`, ok: s.level >= reqLv },
+  ];
+  if (reqElites > 0) {
+    const have = s.stats.elites ?? 0;
+    checks.push({ id: 'trial', label: `Thử thách: hạ gục ${reqElites} sinh vật Tinh anh ★ (${Math.min(have, reqElites)}/${reqElites})`, ok: have >= reqElites });
+  }
+  return [
+    ...checks,
     { id: 'hunger', label: `Độ no ≥ ${E.minHunger}%`, ok: s.hunger >= E.minHunger },
     { id: 'thirst', label: `Lượng nước ≥ ${E.minThirst}%`, ok: s.thirst >= E.minThirst },
     { id: 'combat', label: 'Không đang chiến đấu', ok: !ctx.inCombat },

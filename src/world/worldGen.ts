@@ -5,7 +5,7 @@ import { FOODS, RESOURCES } from '../data/foods';
 import type { Diet, ResourceKind } from '../data/types';
 import { BLK, TT, type ObjKind, type WorldData, type WorldObject } from './tiles';
 
-const BIOME = { grass: 0, forest: 1, lake: 2, rock: 3 } as const;
+const BIOME = { grass: 0, forest: 1, lake: 2, rock: 3, swamp: 4 } as const;
 const N4 = [
   [1, 0],
   [-1, 0],
@@ -30,26 +30,34 @@ export function generateWorld(seed: string): WorldData {
   const idx = (x: number, y: number) => y * W + x;
   const inb = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H;
 
-  // --- Macro layout: rocky corner, central lake, a pond ---
+  // --- Macro layout: rocky corner, swamp in the mirrored corner, central lake, ponds ---
   const corner = rng.int(0, 3);
   const rcx = (corner % 2 === 0 ? 0.84 : 0.16) * W;
   const rcy = (corner < 2 ? 0.16 : 0.84) * H;
+  const scx = W - rcx;
+  const scy = rcy;
+  const swampR = W * 0.2;
   const awayX = Math.sign(W / 2 - rcx);
   const awayY = Math.sign(H / 2 - rcy);
   const lcx = W * 0.5 + awayX * W * rng.range(0.03, 0.09);
   const lcy = H * 0.5 + awayY * H * rng.range(0.03, 0.09);
-  const lakeR = rng.range(11, 14);
+  const lakeR = rng.range(14, 18);
 
-  let pcx = 0;
-  let pcy = 0;
-  for (let tries = 0; tries < 50; tries++) {
-    pcx = rng.range(0.2, 0.8) * W;
-    pcy = rng.range(0.2, 0.8) * H;
-    const dLake = Math.hypot(pcx - lcx, pcy - lcy);
-    const dRock = Math.hypot(pcx - rcx, pcy - rcy);
-    if (dLake > 40 && dRock > 60) break;
+  const ponds: { x: number; y: number; r: number }[] = [];
+  for (let k = 0; k < 3; k++) {
+    let px = 0;
+    let py = 0;
+    for (let tries = 0; tries < 60; tries++) {
+      px = rng.range(0.15, 0.85) * W;
+      py = rng.range(0.15, 0.85) * H;
+      const okLake = Math.hypot(px - lcx, py - lcy) > 45;
+      const okRock = Math.hypot(px - rcx, py - rcy) > 70;
+      const okSwamp = Math.hypot(px - scx, py - scy) > swampR + 12;
+      const okPonds = ponds.every((p) => Math.hypot(px - p.x, py - p.y) > 50);
+      if (okLake && okRock && okSwamp && okPonds) break;
+    }
+    ponds.push({ x: px, y: py, r: rng.range(4.5, 7) });
   }
-  const pondR = rng.range(4.5, 6.5);
 
   const rockiness = new Float32Array(N);
   for (let y = 0; y < H; y++) {
@@ -64,13 +72,17 @@ export function generateWorld(seed: string): WorldData {
       rockiness[i] = rk;
       const wob = (nDetail.fbm(x / 7, y / 7) - 0.5) * 0.55;
       const lakeD = Math.hypot(x - lcx, y - lcy) / lakeR + wob;
-      const pondD = Math.hypot(x - pcx, y - pcy) / pondR + wob;
+      let pondD = Infinity;
+      for (const p of ponds) pondD = Math.min(pondD, Math.hypot(x - p.x, y - p.y) / p.r + wob);
+      const swampD = Math.hypot(x - scx, y - scy) / swampR + (nMoist.fbm(x / 14 + 7, y / 14 + 7) - 0.5) * 0.6;
       if (lakeD < 1 || pondD < 1) {
         tiles[i] = lakeD < 0.55 ? TT.DEEP : TT.WATER;
       } else if (rk > 0.84) {
         tiles[i] = TT.PLATEAU;
       } else if (rk > 0.6) {
         tiles[i] = TT.ROCK;
+      } else if (swampD < 1) {
+        tiles[i] = swampD < 0.85 && nDetail.fbm(x / 5 + 20, y / 5 + 20) > 0.66 ? TT.WATER : TT.SWAMP;
       } else {
         tiles[i] = TT.GRASS;
       }
@@ -145,6 +157,7 @@ export function generateWorld(seed: string): WorldData {
   for (let i = 0; i < N; i++) {
     const t = tiles[i];
     if (t === TT.ROCK || t === TT.PLATEAU || t === TT.LEDGE) biome[i] = BIOME.rock;
+    else if (t === TT.SWAMP) biome[i] = BIOME.swamp;
     else if (t === TT.WATER || t === TT.DEEP || t === TT.FORD) biome[i] = BIOME.lake;
     else if (t === TT.WALL) biome[i] = BIOME.grass;
     else if (waterDist[i] <= 3) {
@@ -180,6 +193,7 @@ export function generateWorld(seed: string): WorldData {
       if (biome[i] !== BIOME.grass) continue;
       if (waterDist2[i] < 5 || waterDist2[i] > 16) continue;
       if (rockiness[i] > 0.25) continue;
+      if (Math.hypot(x - scx, y - scy) < swampR + 25) continue;
       candidates.push(i);
     }
   }
@@ -290,7 +304,12 @@ export function generateWorld(seed: string): WorldData {
   const farFromSpawn = (min: number) => (x: number, y: number) => Math.hypot(x - spawn.tx, y - spawn.ty) >= min;
   placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.forest, true)(x, y) && farFromSpawn(25)(x, y)), 1);
   placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.forest, true)(x, y) && farFromSpawn(45)(x, y)), 1);
+  placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.forest, true)(x, y) && farFromSpawn(80)(x, y)), 1);
+  placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.grass, true)(x, y) && farFromSpawn(70)(x, y)), 0);
   placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.lake, true)(x, y) && farFromSpawn(20)(x, y)), 0);
+  placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.lake, true)(x, y) && farFromSpawn(60)(x, y)), 0);
+  placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.swamp, true)(x, y) && Math.hypot(x - scx, y - scy) > swampR * 0.5), 1);
+  placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.swamp, true)(x, y) && Math.hypot(x - scx, y - scy) < swampR * 0.45), 1);
   placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.rock, true, (i) => tiles[i] === TT.ROCK)(x, y)), 2);
   placeStructure('shelter', randomTileWhere(orng, (x, y) => biomeSpot(BIOME.rock, false, (i) => tiles[i] === TT.PLATEAU)(x, y)), 2);
 
@@ -299,8 +318,8 @@ export function generateWorld(seed: string): WorldData {
 
   // Exploration stones spread across sectors.
   const stoneSpots: { tx: number; ty: number }[] = [];
-  for (let k = 0; k < 9; k++) {
-    const p = randomTileWhere(orng, (x, y) => freeSpot(k < 7)(x, y) && !nearBlocker(x, y, 1) && farFromSpawn(14)(x, y) && stoneSpots.every((s) => Math.hypot(s.tx - x, s.ty - y) > 30));
+  for (let k = 0; k < 14; k++) {
+    const p = randomTileWhere(orng, (x, y) => freeSpot(k < 11)(x, y) && !nearBlocker(x, y, 1) && farFromSpawn(14)(x, y) && stoneSpots.every((s) => Math.hypot(s.tx - x, s.ty - y) > 34));
     if (p) {
       stoneSpots.push(p);
       placeStructure('stone', p, k);
@@ -352,6 +371,14 @@ export function generateWorld(seed: string): WorldData {
           ['nest', 0.002],
           ['grass', 0.006],
         ];
+      } else if (b === BIOME.swamp) {
+        table = [
+          [cl > 0.6 ? 'pine' : 'tree', 0.035 * cluster],
+          ['mushroom', 0.03],
+          ['leafbush', 0.016],
+          ['grass', 0.012],
+          ['nest', 0.004],
+        ];
       } else if (b === BIOME.lake) {
         table = t === TT.SAND ? [['grass', 0.01]] : [['grass', 0.04 * cluster], ['berrybush', 0.01], ['tree', 0.004]];
       } else if (t === TT.PLATEAU) {
@@ -379,9 +406,9 @@ export function generateWorld(seed: string): WorldData {
   }
 
   // Coins, weighted towards dangerous biomes.
-  const coinWeight = [1, 2, 1, 3.2];
+  const coinWeight = [1, 2, 1, 3.2, 2.6];
   let coins = 0;
-  for (let k = 0; k < 20000 && coins < 48; k++) {
+  for (let k = 0; k < 40000 && coins < 100; k++) {
     const x = orng.int(3, W - 4);
     const y = orng.int(3, H - 4);
     const i = idx(x, y);
@@ -439,6 +466,7 @@ export function generateWorld(seed: string): WorldData {
     shoreTiles,
     rockCenter: { tx: Math.round(rcx), ty: Math.round(rcy) },
     lakeCenter: { tx: Math.round(lcx), ty: Math.round(lcy) },
+    swampCenter: { tx: Math.round(scx), ty: Math.round(scy) },
   };
 }
 

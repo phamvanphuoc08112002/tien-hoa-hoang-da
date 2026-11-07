@@ -1,4 +1,4 @@
-export type TouchButton = 'attack' | 'q' | 'r' | 'dodge' | 'interact' | 'rest' | 'char' | 'pause' | 'marker';
+export type TouchButton = 'attack' | 'q' | 'r' | 't' | 'dodge' | 'interact' | 'rest' | 'char' | 'pause' | 'marker';
 
 export interface TouchSkillInfo {
   name: string;
@@ -9,7 +9,7 @@ export interface TouchSkillInfo {
 
 const JOY_RADIUS = 52;
 const DEADZONE = 0.18;
-const SKILL_BUTTONS: TouchButton[] = ['attack', 'q', 'r', 'dodge', 'rest'];
+const SKILL_BUTTONS: TouchButton[] = ['attack', 'q', 'r', 't', 'dodge', 'rest'];
 
 function capture(el: HTMLElement, pointerId: number): void {
   try {
@@ -43,6 +43,7 @@ export class TouchControls {
         <button class="tb big" data-b="attack"><span>Đánh</span><i class="cd"></i></button>
         <button class="tb" data-b="q"><span>Q</span><i class="cd"></i></button>
         <button class="tb" data-b="r"><span>R</span><i class="cd"></i></button>
+        <button class="tb" data-b="t"><span>T</span><i class="cd"></i></button>
         <button class="tb" data-b="dodge"><span>Né</span><i class="cd"></i></button>
         <button class="tb small" data-b="interact"><span>Dùng</span></button>
         <button class="tb small" data-b="rest"><span>Nghỉ</span><i class="cd"></i></button>
@@ -95,14 +96,14 @@ export class TouchControls {
     this.buttons.get('marker')?.classList.toggle('hidden', !v);
   }
 
-  /** Skills come in HUD order: basic attack, Q, R, dodge, rest. */
+  /** Skills come in HUD order: basic attack, Q, R, T, dodge, rest. */
   updateSkills(skills: TouchSkillInfo[]): void {
     if (!this.enabled) return;
     skills.forEach((s, i) => {
       const id = SKILL_BUTTONS[i];
       const b = id && this.buttons.get(id);
       if (!b) return;
-      const label = id === 'q' || id === 'r' ? (s.locked ? '🔒' : s.name) : id === 'rest' ? s.name : null;
+      const label = id === 'q' || id === 'r' || id === 't' ? (s.locked ? '🔒' : s.name) : id === 'rest' ? s.name : null;
       const span = b.querySelector('span') as HTMLElement;
       if (label !== null && span.textContent !== label) span.textContent = label;
       b.classList.toggle('locked', s.locked);

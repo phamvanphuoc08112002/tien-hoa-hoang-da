@@ -12,15 +12,18 @@ export const TT = {
   LEDGE: 7,
   FORD: 8,
   WALL: 9,
+  /** Walkable mud that slows most creatures. */
+  SWAMP: 10,
 } as const;
 export type TileType = (typeof TT)[keyof typeof TT];
 
-export const BIOME_IDS: Biome[] = ['grass', 'forest', 'lake', 'rock'];
+export const BIOME_IDS: Biome[] = ['grass', 'forest', 'lake', 'rock', 'swamp'];
 export const BIOME_NAMES: Record<Biome, string> = {
   grass: 'Đồng cỏ',
   forest: 'Rừng rậm',
   lake: 'Hồ & suối',
   rock: 'Vùng đá',
+  swamp: 'Đầm lầy',
 };
 
 /** Movement blocking classes stored in WorldData.blocked. */
@@ -57,6 +60,7 @@ export interface WorldData {
   shoreTiles: number[];
   rockCenter: { tx: number; ty: number };
   lakeCenter: { tx: number; ty: number };
+  swampCenter: { tx: number; ty: number };
 }
 
 export function isWaterTile(t: number): boolean {

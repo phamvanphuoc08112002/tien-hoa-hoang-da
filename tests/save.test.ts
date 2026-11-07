@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/config/balance';
 import { createPlayerState } from '../src/systems/playerState';
+import { syncLearned } from '../src/systems/skills';
 import { MemoryStorage, SAVE_KEY, deleteSave, loadSave, parseSave, serializeSave, writeSave, type SaveData } from '../src/systems/save';
 
 function sample(): SaveData {
@@ -15,6 +16,8 @@ function sample(): SaveData {
   p.markers.push({ x: 10, y: 20 });
   p.discoveredSectors.push(3, 4);
   p.discoveredBiomes.push('grass');
+  syncLearned(p);
+  p.mastery.vo_moi = 7;
   return {
     version: BALANCE.saveVersion,
     savedAt: 1,
@@ -29,6 +32,7 @@ function sample(): SaveData {
       collectedCoins: [7, 9],
       stonesUsed: [2],
       alphaDefeatedAt: null,
+      bosses: { thuy_xa_vuong: 500 },
     },
   };
 }
@@ -108,6 +112,39 @@ describe('save / load', () => {
     if (r.status !== 'ok') throw new Error('expected ok');
     expect(r.data.player.coins).toBe(17);
     expect(r.data.world.collectedCoins).not.toContain(11);
+  });
+
+  it('migrates saves made before skills, bosses and new stats existed', () => {
+    const d = sample() as any;
+    delete d.player.skills;
+    delete d.player.equipped;
+    delete d.player.mastery;
+    delete d.player.stats.elites;
+    delete d.world.bosses;
+    d.world.alphaDefeatedAt = 300;
+    const r = parseSave(JSON.stringify(d));
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+    const p = r.data.player;
+    expect(p.skills).toContain('vo_moi');
+    expect(p.skills).toContain('hoi_lua');
+    expect(p.equipped.length).toBe(3);
+    expect(p.equipped[0]).toBe('vo_moi');
+    expect(p.stats.elites).toBe(0);
+    expect(r.data.world.bosses).toEqual({ nham_chua: 300 });
+  });
+
+  it('final-form legacy saves get their upgraded moves', () => {
+    const d = sample() as any;
+    d.player.form = 2;
+    d.player.level = 12;
+    delete d.player.skills;
+    delete d.player.equipped;
+    delete d.player.mastery;
+    const r = parseSave(JSON.stringify(d));
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.data.player.skills).toContain('vo_moi_2');
+    expect(r.data.player.skills).toContain('vong_lua');
   });
 
   it('delete removes the save', () => {

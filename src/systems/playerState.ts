@@ -9,7 +9,13 @@ export interface PlayerStats {
   daysSurvived: number;
   timeAlive: number;
   evolutions: number;
+  elites: number;
+  bosses: number;
+  stones: number;
+  bloodMoons: number;
 }
+
+export const SKILL_SLOTS = 3;
 
 export interface PlayerState {
   speciesId: string;
@@ -37,6 +43,12 @@ export interface PlayerState {
   discoveredSectors: number[];
   discoveredBiomes: string[];
   stats: PlayerStats;
+  /** Learned skill ids (current stage of each line). */
+  skills: string[];
+  /** Skill ids bound to Q / R / T. */
+  equipped: (string | null)[];
+  /** Mastery points per learned skill id. */
+  mastery: Record<string, number>;
 }
 
 export function createPlayerState(speciesId: string, x: number, y: number): PlayerState {
@@ -66,7 +78,10 @@ export function createPlayerState(speciesId: string, x: number, y: number): Play
     milestones: [],
     discoveredSectors: [],
     discoveredBiomes: [],
-    stats: { kills: 0, foodEaten: 0, drinks: 0, daysSurvived: 0, timeAlive: 0, evolutions: 0 },
+    stats: { kills: 0, foodEaten: 0, drinks: 0, daysSurvived: 0, timeAlive: 0, evolutions: 0, elites: 0, bosses: 0, stones: 0, bloodMoons: 0 },
+    skills: [sp.learnset[0].skill],
+    equipped: [sp.learnset[0].skill, null, null],
+    mastery: {},
   };
 }
 

@@ -35,12 +35,14 @@ export interface KillReward {
   ratio: number;
 }
 
-/** Rewards scale with how strong the victim was relative to the player. */
-export function killReward(playerStats: Stats, npc: NpcDef): KillReward {
-  const ratio = powerScore(npc.stats.power, npc.stats.maxHp) / powerScore(playerStats.power, playerStats.maxHp);
+/** Rewards scale with how strong the victim was relative to the player (and its tier/elite bonus). */
+export function killReward(playerStats: Stats, npc: NpcDef, scaled?: { power: number; maxHp: number; expMult: number }): KillReward {
+  const power = scaled?.power ?? npc.stats.power;
+  const maxHp = scaled?.maxHp ?? npc.stats.maxHp;
+  const ratio = powerScore(power, maxHp) / powerScore(playerStats.power, playerStats.maxHp);
   const m = BALANCE.maturity;
   const expMult = Math.max(0.25, Math.min(1.5, ratio));
-  const exp = Math.round(npc.exp * expMult);
+  const exp = Math.round(npc.exp * expMult * (scaled?.expMult ?? 1));
   const maturity = ratio < m.killMinPowerRatio ? 0 : m.perKillBase * Math.min(2, ratio);
   return { exp, maturity, ratio };
 }

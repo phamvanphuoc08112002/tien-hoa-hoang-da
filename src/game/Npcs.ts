@@ -3,10 +3,12 @@ import { BALANCE } from '../config/balance';
 import { SpatialGrid } from '../core/spatialGrid';
 import { dietEfficiency } from '../data/foods';
 import { NPC_LIST, NPCS } from '../data/npcs';
-import type { Diet, NpcDef } from '../data/types';
+import type { Diet, NpcDef, StatusSpec } from '../data/types';
 import { npcTextureKey } from '../gfx/textures';
 import type { AudioSystem } from '../systems/audio';
 import { powerScore } from '../systems/playerState';
+import { STATUS_INFO, StatusEffects } from '../systems/status';
+import { AFFIXES, AFFIX_IDS, canBeElite, eliteChance, scaleNpc, tierAt, type EliteAffix, type NpcScaling } from '../systems/threat';
 import { isPositionFree, moveCircle } from '../world/collision';
 import { BLK, TT } from '../world/tiles';
 import type { CombatSystem, Creature } from './CombatSystem';
@@ -43,9 +45,14 @@ export interface NpcEnv {
   now(): number;
   hour(): number;
   isNight(): boolean;
+  /** Dawns survived; raises creature strength over time. */
+  days(): number;
+  bloodMoon(): boolean;
   player: PlayerInfo;
   audio: AudioSystem;
 }
+
+type WindupKind = 'basic' | 'heavy' | 'ranged';
 
 let uidCounter = 1000;
 
@@ -64,6 +71,12 @@ export class Npc implements Creature {
   iframes = 0;
   score: number;
   canClimb: boolean;
+  status = new StatusEffects<Creature>();
+
+  readonly tier: number;
+  readonly affix: EliteAffix | null;
+  readonly sc: NpcScaling;
+  enraged = false;
 
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
@@ -85,7 +98,8 @@ export class Npc implements Creature {
   thirst: number;
   atkCd = 0;
   heavyCd: number;
-  windup: { heavy: boolean; t: number; dir: number } | null = null;
+  rangedCd: number;
+  windup: { kind: WindupKind; t: number; dir: number } | null = null;
   dash: { vx: number; vy: number; t: number } | null = null;
   lastAttacker: Creature | null = null;
   lastHitAt = -99;
@@ -110,29 +124,60 @@ export class Npc implements Creature {
     readonly def: NpcDef,
     x: number,
     y: number,
+    tier: number,
+    days: number,
+    affix: EliteAffix | null,
   ) {
     this.kind = def.id;
     this.x = x;
     this.y = y;
     this.homeX = x;
     this.homeY = y;
-    this.radius = def.radius;
-    this.maxHp = def.stats.maxHp;
+    this.tier = tier;
+    this.affix = affix;
+    this.sc = scaleNpc(def, tier, days, affix);
+    this.radius = def.radius * (affix ? 1.12 : 1);
+    this.maxHp = this.sc.maxHp;
     this.hp = this.maxHp;
-    this.score = powerScore(def.stats.power, def.stats.maxHp);
+    this.score = powerScore(this.sc.power, this.sc.maxHp);
     this.canClimb = def.biomes.includes('rock');
     this.hunger = 50 + Math.random() * 50;
     this.thirst = 50 + Math.random() * 50;
     this.heavyCd = 1.5 + Math.random() * 2;
+    this.rangedCd = 1 + Math.random() * 2;
+    if (def.unique) this.status.ccResist = 0.4;
+    else if (affix) this.status.ccResist = 0.65;
     this.texKey = npcTextureKey(def.id);
     const s = def.art.size * 2;
-    this.shadow = scene.add.image(x, y, 'shadow').setDisplaySize(def.radius * 2.6, def.radius * 0.9).setDepth(y - 30);
+    this.shadow = scene.add.image(x, y, 'shadow').setDisplaySize(this.radius * 2.6, this.radius * 0.9).setDepth(y - 30);
     this.sprite = scene.add.sprite(x, y, this.texKey, 0).setOrigin(0.5, (s - 4) / s);
+    if (affix) this.sprite.setScale(1.12);
     this.play('idle');
   }
 
+  get elite(): boolean {
+    return this.affix !== null;
+  }
+
+  get level(): number {
+    return this.sc.level;
+  }
+
+  get power(): number {
+    return this.sc.power;
+  }
+
+  get displayName(): string {
+    return this.affix ? `★ ${this.def.name} ${AFFIXES[this.affix].name}` : this.def.name;
+  }
+
   defense(): number {
-    return this.def.stats.defense;
+    return this.sc.defense;
+  }
+
+  /** Status inflicted by melee attacks (species trait or elite affix). */
+  meleeStatus(): StatusSpec | null {
+    return this.def.attackStatus ?? (this.affix ? AFFIXES[this.affix].status ?? null : null);
   }
 
   play(name: string): void {
@@ -157,17 +202,20 @@ export class Npc implements Creature {
   }
 }
 
-type SpawnZone = 'grass' | 'forest' | 'lake' | 'rock' | 'plateau';
+type SpawnZone = 'grass' | 'forest' | 'lake' | 'rock' | 'plateau' | 'swamp';
 
 export class NpcManager {
   npcs: Npc[] = [];
   readonly grid = new SpatialGrid<Npc>(128);
-  private zones: Record<SpawnZone, number[]> = { grass: [], forest: [], lake: [], rock: [], plateau: [] };
+  private zones: Record<SpawnZone, number[]> = { grass: [], forest: [], lake: [], rock: [], plateau: [], swamp: [] };
   private spawnTimer = 3;
   private nextAllowed: Record<string, number> = {};
-  alphaDefeatedAt: number | null = null;
+  /** Simulated time each unique boss was last defeated. */
+  bossDefeatedAt: Record<string, number> = {};
   /** Called when an NPC finishes dying (for UI cleanup). */
   onRemoved: ((n: Npc) => void) | null = null;
+  /** Called when a boss enrages. */
+  onEnrage: ((n: Npc) => void) | null = null;
 
   constructor(
     private scene: Phaser.Scene,
@@ -186,6 +234,7 @@ export class NpcManager {
       else if (b === 0) this.zones.grass.push(i);
       else if (b === 1) this.zones.forest.push(i);
       else if (b === 2) this.zones.lake.push(i);
+      else if (b === 4) this.zones.swamp.push(i);
       else this.zones.rock.push(i);
     }
   }
@@ -220,35 +269,65 @@ export class NpcManager {
     return def.biomes.includes('rock');
   }
 
-  spawn(def: NpcDef, x: number, y: number): Npc {
-    const n = new Npc(this.scene, def, x, y);
+  private tierFor(x: number, y: number): number {
+    const s = this.wv.data.spawn;
+    return tierAt(Math.hypot(x / T - s.tx, y / T - s.ty));
+  }
+
+  spawn(def: NpcDef, x: number, y: number, affix: EliteAffix | null = null): Npc {
+    const n = new Npc(this.scene, def, x, y, this.tierFor(x, y), this.env.days(), affix);
     this.npcs.push(n);
     this.grid.insert(n);
     return n;
   }
 
+  private rollAffix(def: NpcDef, x: number, y: number): EliteAffix | null {
+    if (!canBeElite(def)) return null;
+    if (Math.random() >= eliteChance(this.tierFor(x, y), this.env.bloodMoon())) return null;
+    return AFFIX_IDS[Math.floor(Math.random() * AFFIX_IDS.length)];
+  }
+
+  /** Spawns a pack (or single creature) around a point. Returns how many were placed. */
+  private spawnGroup(def: NpcDef, p: { x: number; y: number }, size: number): number {
+    let placed = 0;
+    for (let g = 0; g < size; g++) {
+      const ox = g === 0 ? 0 : (Math.random() - 0.5) * 80;
+      const oy = g === 0 ? 0 : (Math.random() - 0.5) * 80;
+      const x = p.x + ox;
+      const y = p.y + oy;
+      if (g > 0 && !isPositionFree(this.wv.data, x, y, def.radius, this.canClimbDef(def))) continue;
+      const n = this.spawn(def, x, y, this.rollAffix(def, x, y));
+      n.homeX = p.x;
+      n.homeY = p.y;
+      placed++;
+    }
+    return placed;
+  }
+
+  bossDown(def: NpcDef): boolean {
+    const at = this.bossDefeatedAt[def.id];
+    return def.unique === true && at !== undefined && this.env.now() - at < def.respawnSec;
+  }
+
+  targetPopulation(def: NpcDef): number {
+    if (def.unique) return def.population;
+    let p = def.population * BALANCE.npc.populationScale;
+    if (this.env.bloodMoon() && (def.temperament === 'predator' || def.temperament === 'apex')) p *= BALANCE.threat.bloodMoonPopulation;
+    return Math.round(p);
+  }
+
   initialPopulate(): void {
     for (const def of NPC_LIST) {
-      if (def.unique && this.alphaDefeatedAt !== null && this.env.now() - this.alphaDefeatedAt < def.respawnSec) continue;
+      if (this.bossDown(def)) continue;
       const dangerous = def.temperament === 'predator' || def.temperament === 'apex' || def.temperament === 'territorial';
       const minD = dangerous ? 30 * T : 6 * T;
+      const target = this.targetPopulation(def);
       let placed = 0;
-      while (placed < def.population) {
+      let guard = 0;
+      while (placed < target && guard++ < target * 3) {
         const p = this.pickSpawn(def, minD, false);
         if (!p) break;
-        const group = def.id === 'huou_suong' ? Math.min(3, def.population - placed) : 1;
-        for (let g = 0; g < group; g++) {
-          const ox = g === 0 ? 0 : (Math.random() - 0.5) * 70;
-          const oy = g === 0 ? 0 : (Math.random() - 0.5) * 70;
-          const x = p.x + ox;
-          const y = p.y + oy;
-          if (g > 0 && !isPositionFree(this.wv.data, x, y, def.radius, this.canClimbDef(def))) continue;
-          const n = this.spawn(def, x, y);
-          n.homeX = p.x;
-          n.homeY = p.y;
-          placed++;
-        }
-        if (group === 0) break;
+        placed += this.spawnGroup(def, p, Math.min(def.pack ?? 1, target - placed));
       }
     }
   }
@@ -269,9 +348,24 @@ export class NpcManager {
     n.hbTimer = 4;
     n.flash = 0.12;
     if (n.state === 'rest' || n.state === 'eat' || n.state === 'drink') n.setState('wander');
-    n.windup = n.windup && n.windup.heavy ? n.windup : null;
+    n.windup = n.windup && n.windup.kind === 'heavy' ? n.windup : null;
     if (!n.windup) this.combat.removeTelegraphs(n.uid);
     n.decideT = 0;
+    if (attacker.isPlayer) this.alertPack(n, attacker);
+  }
+
+  /** Pack members near `n` join the fight against `target`. */
+  private alertPack(n: Npc, target: Creature): void {
+    if (!n.def.pack || n.def.pack < 2) return;
+    for (const o of this.grid.queryRadius(n.x, n.y, BALANCE.npc.packAlertRadius)) {
+      if (o === n || !o.alive || o.def.id !== n.def.id || o.target === target) continue;
+      if (o.state === 'flee') continue;
+      o.setState('fight');
+      o.target = target;
+      o.chaseX = o.x;
+      o.chaseY = o.y;
+      o.hbTimer = 4;
+    }
   }
 
   kill(n: Npc, killer: Creature | null): Carcass | null {
@@ -281,11 +375,12 @@ export class NpcManager {
     n.deadT = 0;
     n.windup = null;
     n.dash = null;
+    n.status.clear();
     this.combat.cancelOwner(n.uid);
     n.play('dead');
     this.fx.burst(n.x, n.y - n.radius, 'blood', 8, { speed: 110, life: 0.5, tint: 0xd04040, gravity: 200 });
-    if (n.def.unique) this.alphaDefeatedAt = this.env.now();
-    this.wv.addCarcass(n.x, n.y, n.def.drops, this.env.now());
+    if (n.def.unique) this.bossDefeatedAt[n.def.id] = this.env.now();
+    this.wv.addCarcass(n.x, n.y, n.def.drops + (n.elite ? 2 : 0), this.env.now());
     const carcass = this.wv.carcasses[this.wv.carcasses.length - 1] ?? null;
     if (killer && !killer.isPlayer) {
       const k = killer as Npc;
@@ -332,7 +427,7 @@ export class NpcManager {
         }
       }
       this.grid.update(n);
-      if (visible) this.render(n, dt);
+      if (visible && n.alive) this.render(n, dt);
     }
 
     this.spawnTimer -= dt;
@@ -348,14 +443,15 @@ export class NpcManager {
     for (const n of this.npcs) if (n.alive) counts[n.kind] = (counts[n.kind] ?? 0) + 1;
     for (const def of NPC_LIST) {
       const alive = counts[def.id] ?? 0;
-      if (alive >= def.population) continue;
-      if (def.unique && this.alphaDefeatedAt !== null && now - this.alphaDefeatedAt < def.respawnSec) continue;
+      const target = this.targetPopulation(def);
+      if (alive >= target) continue;
+      if (this.bossDown(def)) continue;
       if ((this.nextAllowed[def.id] ?? 0) > now) continue;
       const p = this.pickSpawn(def, BALANCE.npc.spawnMinPlayerDist, true);
       if (!p) continue;
-      this.spawn(def, p.x, p.y);
-      const fill = alive / def.population;
-      this.nextAllowed[def.id] = now + def.respawnSec * (0.5 + fill);
+      this.spawnGroup(def, p, Math.min(def.pack ?? 1, target - alive));
+      const fill = alive / target;
+      this.nextAllowed[def.id] = now + def.respawnSec * (0.5 + fill) * (this.env.bloodMoon() ? 0.5 : 1);
     }
   }
 
@@ -365,7 +461,10 @@ export class NpcManager {
     let r = n.def.detectRange;
     const night = this.env.isNight();
     if (night) r *= n.def.nocturnal ? 1.35 : 0.75;
-    if (this.wv.biomeAt(n.x, n.y) === 1) r *= 0.8;
+    if (this.env.bloodMoon()) r *= BALANCE.threat.bloodMoonDetect;
+    const b = this.wv.biomeAt(n.x, n.y);
+    if (b === 1 || b === 4) r *= 0.8;
+    if (n.elite) r *= 1.15;
     return r;
   }
 
@@ -392,18 +491,21 @@ export class NpcManager {
     if (!P.alive) return false;
     const now = this.env.now();
     if ((n.giveUp.get(P.uid) ?? 0) > now) return false;
-    const lure = P.evolving && dist < BALANCE.evolution.lureRadius && (n.def.temperament === 'predator' || n.def.temperament === 'apex');
+    const hostile = n.def.temperament === 'predator' || n.def.temperament === 'apex';
+    const lure = P.evolving && dist < BALANCE.evolution.lureRadius && (hostile || n.def.temperament === 'territorial');
     if (P.inShelter && !lure) return false;
     if (n.target !== P && this.countAggroOnPlayer() >= BALANCE.combat.maxPlayerAggressors) return false;
     if (lure) return true;
+    const blood = this.env.bloodMoon();
     switch (n.def.temperament) {
       case 'apex':
-        return dist < this.detectRange(n) * 0.75;
+        return dist < this.detectRange(n) * 0.9;
       case 'territorial':
-        return dist < n.def.detectRange;
+        return dist < n.def.detectRange * (n.elite ? 1.3 : 1);
       case 'predator': {
-        const weak = P.score < n.score * 1.3 || P.hp < P.maxHp * 0.35;
-        const motivated = n.hunger < 65 || (n.def.nocturnal && this.env.isNight());
+        if (blood || n.elite) return dist < this.detectRange(n);
+        const weak = P.score < n.score * 1.8 || P.hp < P.maxHp * 0.5;
+        const motivated = n.hunger < 75 || (n.def.nocturnal && this.env.isNight());
         return dist < this.detectRange(n) && (P.sleeping || (weak && motivated));
       }
       default:
@@ -469,8 +571,8 @@ export class NpcManager {
 
     const recentlyHit = !!n.lastAttacker && n.lastAttacker.alive && now - n.lastHitAt < 8 && (n.giveUp.get(n.lastAttacker.uid) ?? 0) <= now;
 
-    // Badly hurt creatures retreat from whoever hurt them.
-    if (n.hp < n.maxHp * BALANCE.npc.lowHpRetreatFrac && recentlyHit && t !== 'apex') {
+    // Badly hurt creatures retreat from whoever hurt them (elites and bosses fight to the end).
+    if (n.hp < n.maxHp * BALANCE.npc.lowHpRetreatFrac && recentlyHit && t !== 'apex' && !n.elite) {
       if (n.state !== 'flee' || n.target !== n.lastAttacker) {
         n.setState('flee');
         n.target = n.lastAttacker;
@@ -511,6 +613,7 @@ export class NpcManager {
       n.target = aggro;
       n.chaseX = n.x;
       n.chaseY = n.y;
+      if (aggro.isPlayer) this.alertPack(n, aggro);
       return;
     }
 
@@ -529,7 +632,7 @@ export class NpcManager {
     }
     const h = this.env.hour();
     const offHours = n.def.nocturnal ? h > 10 && h < 16 : h >= 21 || h < 5;
-    if (offHours && Math.random() < 0.25) {
+    if (offHours && Math.random() < 0.25 && !this.env.bloodMoon()) {
       n.setState('rest');
       n.restLen = 20 + Math.random() * 30;
       return;
@@ -574,14 +677,29 @@ export class NpcManager {
   private step(n: Npc, dt: number): void {
     n.stateT += dt;
     n.iframes = Math.max(0, n.iframes - dt);
-    n.atkCd = Math.max(0, n.atkCd - dt);
-    n.heavyCd = Math.max(0, n.heavyCd - dt);
+    const cdRate = n.enraged ? 1 / BALANCE.threat.enrageCooldown : 1;
+    n.atkCd = Math.max(0, n.atkCd - dt * cdRate);
+    n.heavyCd = Math.max(0, n.heavyCd - dt * cdRate);
+    n.rangedCd = Math.max(0, n.rangedCd - dt * cdRate);
     n.hbTimer = Math.max(0, n.hbTimer - dt);
     n.flash = Math.max(0, n.flash - dt);
     n.hunger = Math.max(0, n.hunger - BALANCE.npc.hungerDecayPerSec * dt * (n.state === 'rest' ? 0.4 : 1));
     n.thirst = Math.max(0, n.thirst - BALANCE.npc.thirstDecayPerSec * dt * (n.state === 'rest' ? 0.4 : 1));
     if (n.state === 'rest') n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.02 * dt);
-    else if (n.state !== 'fight' && n.state !== 'hunt' && n.state !== 'flee') n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.004 * dt);
+    else if (n.state !== 'fight' && n.state !== 'hunt' && n.state !== 'flee' && !n.status.has('poison')) n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.004 * dt);
+
+    const dot = n.status.tick(dt);
+    if (dot.damage > 0) {
+      this.combat.dotDamage(n, dot.damage, dot.source, dot.kind === 'poison' ? '#b6f07a' : '#ffb46a');
+      if (!n.alive) return;
+    }
+
+    if (n.def.unique && !n.enraged && n.hp < n.maxHp * BALANCE.threat.enrageAt) {
+      n.enraged = true;
+      this.fx.ring(n.x, n.y, 0xff3a3a, 10, 140, 0.7, 5);
+      this.fx.text(n.x, n.y - n.radius * 3, 'NỔI ĐIÊN!', '#ff5a4a', 18);
+      this.onEnrage?.(n);
+    }
 
     n.decideT -= dt;
     if (n.decideT <= 0) {
@@ -592,10 +710,16 @@ export class NpcManager {
     n.moveX = 0;
     n.moveY = 0;
     n.speedMult = 0;
-    const spd = n.def.stats.speed * (n.def.nocturnal && this.env.isNight() ? 1.1 : 1);
+    let spd = n.sc.speed * (n.def.nocturnal && this.env.isNight() ? 1.1 : 1) * n.status.speedMult();
+    if (n.enraged) spd *= BALANCE.threat.enrageSpeed;
 
-    // Windup / dash override movement.
-    if (n.dash) {
+    if (n.status.stunned) {
+      if (n.windup) {
+        n.windup = null;
+        this.combat.removeTelegraphs(n.uid);
+      }
+      n.dash = null;
+    } else if (n.dash) {
       n.dash.t -= dt;
       const r = moveCircle(this.wv.data, n.x, n.y, n.dash.vx * dt, n.dash.vy * dt, n.radius, n.canClimb);
       n.x = r.x;
@@ -603,10 +727,10 @@ export class NpcManager {
       if (n.dash.t <= 0 || r.blockedX || r.blockedY) n.dash = null;
     } else if (n.windup) {
       n.windup.t -= dt;
-      if (n.target && n.target.alive && !n.windup.heavy) n.windup.dir = Math.atan2(n.target.y - n.y, n.target.x - n.x);
+      if (n.target && n.target.alive && n.windup.kind !== 'heavy') n.windup.dir = Math.atan2(n.target.y - n.y, n.target.x - n.x);
       if (n.windup.t <= 0) this.releaseAttack(n);
     } else {
-      this.behave(n, dt, spd);
+      this.behave(n, dt);
     }
 
     // Movement + knockback integration
@@ -650,7 +774,7 @@ export class NpcManager {
     }
   }
 
-  private behave(n: Npc, dt: number, spd: number): void {
+  private behave(n: Npc, dt: number): void {
     const now = this.env.now();
     const P = this.env.player;
     const moveTo = (x: number, y: number, mult: number) => {
@@ -662,7 +786,6 @@ export class NpcManager {
       n.speedMult = mult;
       return d;
     };
-    void spd;
     switch (n.state) {
       case 'wander': {
         if (n.pause > 0) {
@@ -779,14 +902,14 @@ export class NpcManager {
           n.setState('wander');
           break;
         }
-        if (tg === P && P.inShelter && !(P.evolving && n.def.temperament !== 'territorial')) {
+        if (tg === P && P.inShelter && !(P.evolving && n.def.temperament !== 'neutral')) {
           n.giveUp.set(tg.uid, now + 12);
           if (n.lastAttacker === tg) n.lastAttacker = null;
           n.setState('wander');
           break;
         }
         const fromHome = Math.hypot(n.x - n.chaseX, n.y - n.chaseY);
-        const leash = n.def.leash || 300;
+        const leash = (n.def.leash || 300) * (n.elite || n.enraged ? 1.4 : 1);
         if (fromHome > leash || (n.state === 'hunt' && n.stateT > BALANCE.npc.giveUpChaseSec)) {
           n.giveUp.set(tg.uid, now + 20);
           n.setState('wander');
@@ -796,16 +919,26 @@ export class NpcManager {
         }
         const d = Math.hypot(tg.x - n.x, tg.y - n.y);
         const gap = d - tg.radius - n.radius;
+        const dir = Math.atan2(tg.y - n.y, tg.x - n.x);
         const H = n.def.heavy;
         if (H && n.heavyCd <= 0 && n.atkCd <= 0) {
           const ok = H.kind === 'slam' ? d < H.radius * 0.85 : gap > 30 && gap < H.range * 0.85;
           if (ok) {
-            this.startWindup(n, true, Math.atan2(tg.y - n.y, tg.x - n.x));
+            this.startWindup(n, 'heavy', dir);
             break;
           }
         }
+        const R = n.def.ranged;
+        if (R && n.rangedCd <= 0 && n.atkCd <= 0 && gap > 50 && gap < R.range * 0.9) {
+          this.startWindup(n, 'ranged', dir);
+          break;
+        }
+        if (R?.kite && gap < 70 && n.rangedCd > 0.6) {
+          moveTo(n.x * 2 - tg.x, n.y * 2 - tg.y, 0.9);
+          break;
+        }
         if (gap <= n.def.attack.range * 0.8) {
-          if (n.atkCd <= 0) this.startWindup(n, false, Math.atan2(tg.y - n.y, tg.x - n.x));
+          if (n.atkCd <= 0) this.startWindup(n, 'basic', dir);
           n.facing = tg.x > n.x ? 1 : -1;
         } else {
           moveTo(tg.x, tg.y, n.state === 'hunt' ? 1.12 : 1);
@@ -817,14 +950,19 @@ export class NpcManager {
     }
   }
 
-  private startWindup(n: Npc, heavy: boolean, dir: number): void {
+  private startWindup(n: Npc, kind: WindupKind, dir: number): void {
     const H = n.def.heavy;
-    if (heavy && H) {
-      n.windup = { heavy: true, t: H.windupSec, dir };
+    const R = n.def.ranged;
+    const nearPlayer = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 500;
+    if (kind === 'heavy' && H) {
+      n.windup = { kind, t: H.windupSec, dir };
       this.combat.telegraph({ ownerUid: n.uid, kind: H.kind, x: n.x, y: n.y, dir, range: H.range, radius: H.radius, t: H.windupSec, total: H.windupSec });
-      if (Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 500) this.env.audio.play('telegraph');
+      if (nearPlayer) this.env.audio.play('telegraph');
+    } else if (kind === 'ranged' && R) {
+      n.windup = { kind, t: R.windupSec, dir };
+      this.fx.burst(n.x, n.y - n.radius, 'spark', 6, { speed: 40, life: 0.4, tint: R.color });
     } else {
-      n.windup = { heavy: false, t: n.def.attack.windupSec, dir };
+      n.windup = { kind: 'basic', t: n.def.attack.windupSec, dir };
     }
     n.facing = Math.cos(dir) >= 0 ? 1 : -1;
   }
@@ -833,13 +971,14 @@ export class NpcManager {
     const w = n.windup;
     n.windup = null;
     if (!w) return;
-    const p = n.def.stats.power;
-    if (w.heavy && n.def.heavy) {
+    const p = n.power * (this.env.bloodMoon() ? BALANCE.threat.bloodMoonPower : 1);
+    if (w.kind === 'heavy' && n.def.heavy) {
       const H = n.def.heavy;
-      n.heavyCd = H.cooldownSec;
+      const opts = { status: H.status ?? n.meleeStatus() };
+      n.heavyCd = H.cooldownSec * n.sc.atkCdMult;
       n.atkCd = 0.8;
       if (H.kind === 'slam') {
-        this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, 0.12, false, 0xff6a3a);
+        this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, 0.12, false, 0xff6a3a, opts);
         this.fx.ring(n.x, n.y, 0xffa060, 10, H.radius, 0.45, 4);
         this.fx.burst(n.x, n.y, 'dust', 14, { speed: 160, life: 0.6 });
         if (Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 600) {
@@ -850,13 +989,23 @@ export class NpcManager {
         const dur = 0.28;
         const sp = H.range / dur;
         n.dash = { vx: Math.cos(w.dir) * sp, vy: Math.sin(w.dir) * sp, t: dur };
-        this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, dur, true, 0xff6a3a);
+        this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, dur, true, 0xff6a3a, opts);
         this.fx.burst(n.x, n.y, 'dust', 6, { speed: 80, life: 0.4 });
+      }
+    } else if (w.kind === 'ranged' && n.def.ranged) {
+      const R = n.def.ranged;
+      n.rangedCd = R.cooldownSec * n.sc.atkCdMult;
+      n.atkCd = 0.6;
+      const count = R.count + (n.enraged ? 2 : 0);
+      const spread = (((R.spreadDeg || 0) + (n.enraged ? 12 : 0)) * Math.PI) / 180;
+      for (let i = 0; i < count; i++) {
+        const a = count === 1 ? w.dir : w.dir - spread + (2 * spread * i) / (count - 1);
+        this.combat.projectile(n, n.x + Math.cos(a) * n.radius, n.y - n.radius * 0.6, a, R.speed, R.range, R.radius, p, R.dmgMult, R.knockback, R.color, 'drop', { status: R.status ?? null });
       }
     } else {
       const A = n.def.attack;
-      n.atkCd = A.cooldownSec;
-      this.combat.arc(n, w.dir, A.arcDeg, A.range + n.radius, p, A.dmgMult, A.knockback, A.activeSec);
+      n.atkCd = A.cooldownSec * n.sc.atkCdMult;
+      this.combat.arc(n, w.dir, A.arcDeg, A.range + n.radius, p, A.dmgMult, A.knockback, A.activeSec, 0xffffff, { status: n.meleeStatus() });
     }
   }
 
@@ -866,7 +1015,8 @@ export class NpcManager {
     n.sprite.setDepth(n.y);
     n.shadow.setPosition(n.x, n.y + 1).setDepth(n.y - 30);
     let anim = 'idle';
-    if (n.dash || n.windup) anim = 'attack';
+    if (n.status.stunned) anim = 'hurt';
+    else if (n.dash || n.windup) anim = 'attack';
     else if (n.state === 'eat' || n.state === 'drink') anim = 'eat';
     else if (n.state === 'rest') anim = this.env.isNight() ? 'sleep' : 'rest';
     else if (n.speedMult > 0.01) anim = 'walk';
@@ -874,29 +1024,49 @@ export class NpcManager {
     n.play(anim);
     if (n.sprite.anims.currentAnim && anim === 'walk') n.sprite.anims.timeScale = 0.6 + n.speedMult * 0.8;
     else n.sprite.anims.timeScale = 1;
+    const now = this.scene.time.now;
+    const st = n.status.list()[0];
     if (n.flash > 0) n.sprite.setTintFill(0xffffff);
-    else if (n.windup && n.windup.heavy) n.sprite.setTint(Math.floor(this.scene.time.now / 90) % 2 ? 0xff8080 : 0xffffff);
+    else if (n.windup && n.windup.kind !== 'basic') n.sprite.setTint(Math.floor(now / 90) % 2 ? 0xff8080 : 0xffffff);
+    else if (st && Math.floor(now / 160) % 2) n.sprite.setTint(STATUS_INFO[st].tint);
+    else if (n.enraged) n.sprite.setTint(Math.floor(now / 200) % 2 ? 0xff6a5a : 0xffb0a0);
+    else if (n.affix) n.sprite.setTint(AFFIXES[n.affix].tint);
     else n.sprite.clearTint();
+    if (st === 'burn' && Math.random() < 0.25) this.fx.burst(n.x, n.y - n.radius, 'spark', 1, { speed: 30, life: 0.4, tint: 0xff8a3a });
+    else if (st === 'poison' && Math.random() < 0.2) this.fx.burst(n.x, n.y - n.radius, 'bubble', 1, { speed: 20, life: 0.5, tint: 0x9ae06a });
+    else if (st === 'stun' && Math.random() < 0.2) this.fx.burst(n.x, n.y - n.radius * 2.2, 'star', 1, { speed: 25, life: 0.4 });
   }
 
   drawBars(g: Phaser.GameObjects.Graphics, playerScore: number, debug: boolean): void {
+    const P = this.env.player;
     for (const n of this.npcs) {
       if (!n.alive || !n.sprite.visible) continue;
       if (debug) {
         g.lineStyle(1, 0x00ffff, 0.8);
         g.strokeCircle(n.x, n.y, n.radius);
       }
-      const show = n.hbTimer > 0 || (n.target === this.env.player && (n.state === 'hunt' || n.state === 'fight'));
+      const special = n.elite || n.def.unique;
+      const engaged = n.target === P && (n.state === 'hunt' || n.state === 'fight');
+      const show = n.hbTimer > 0 || engaged || (special && Math.hypot(n.x - P.x, n.y - P.y) < 420);
       if (!show) continue;
       const w = Math.max(28, n.radius * 2.4);
-      const y = n.y - n.def.art.size * 2 * 0.85 - 6;
+      const y = n.y - n.def.art.size * 2 * 0.85 * (n.elite ? 1.12 : 1) - 6;
       const ratio = n.score / Math.max(1, playerScore);
       const col = ratio > 1.3 ? 0xff4a4a : ratio > 0.7 ? 0xffc04a : 0x7ad05a;
       g.fillStyle(0x10131a, 0.85);
       g.fillRect(n.x - w / 2 - 1, y - 1, w + 2, 6);
       g.fillStyle(col, 1);
       g.fillRect(n.x - w / 2, y, w * (n.hp / n.maxHp), 4);
-      if (n.target === this.env.player && (n.state === 'hunt' || n.state === 'fight')) {
+      if (special) {
+        g.lineStyle(1, n.def.unique ? 0xff5a4a : 0xffd84a, 1);
+        g.strokeRect(n.x - w / 2 - 1.5, y - 1.5, w + 3, 7);
+        g.fillStyle(n.def.unique ? 0xff5a4a : 0xffd84a, 1);
+        const sx = n.x - w / 2 - 7;
+        const sy = y + 2;
+        g.fillTriangle(sx - 3, sy, sx + 3, sy, sx, sy - 5);
+        g.fillTriangle(sx - 3, sy - 3, sx + 3, sy - 3, sx, sy + 2);
+      }
+      if (engaged) {
         g.fillStyle(0xff3a3a, 1);
         g.fillTriangle(n.x - 4, y - 9, n.x + 4, y - 9, n.x, y - 3);
       }

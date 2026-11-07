@@ -18,10 +18,12 @@ export const TI = {
   DEEP: 19,
   /** 20 + mask, mask bits: 1=N land, 2=E, 4=S, 8=W */
   WATER_BASE: 20,
+  SWAMP: [36, 37],
+  SWAMP_REEDS: 38,
 } as const;
 
 export const TILESET_COLS = 12;
-export const TILESET_ROWS = 3;
+export const TILESET_ROWS = 4;
 const TS = 16;
 
 function tileRect(i: number): { x: number; y: number } {
@@ -227,6 +229,33 @@ export function renderTileset(frame: number): HTMLCanvasElement {
       rect(g, bx, by + 3, 4, 1, '#36332d');
     }
   });
+
+  // Swamp mud
+  TI.SWAMP.forEach((i, v) => {
+    const { x, y } = tileRect(i);
+    rect(g, x, y, TS, TS, '#4c5a34');
+    speckle(g, x, y, 201 + v, ['#43502e', '#56663a', '#3e4a2a', '#5a5a36'], 34);
+    const r = artRng(211 + v);
+    for (let k = 0; k < 2; k++) {
+      const px = x + 2 + Math.floor(r() * 10);
+      const py = y + 2 + Math.floor(r() * 10);
+      rect(g, px, py, 4, 2, '#36452e');
+      rect(g, px + 1, py, 2, 1, '#5e7a5a');
+    }
+    if (v === 1) {
+      rect(g, x + 10, y + 4, 1, 1, '#8ab04a');
+      rect(g, x + 4, y + 12, 1, 1, '#8ab04a');
+    }
+  });
+  {
+    const { x, y } = tileRect(TI.SWAMP_REEDS);
+    rect(g, x, y, TS, TS, '#4c5a34');
+    speckle(g, x, y, 221, ['#43502e', '#56663a'], 24);
+    blades(g, x, y, 222, '#6a7a3a', 6, 5);
+    blades(g, x, y, 223, '#8a9a4a', 3, 4);
+    const r = artRng(224);
+    for (let k = 0; k < 2; k++) rect(g, x + 2 + Math.floor(r() * 12), y + 1 + Math.floor(r() * 6), 1, 2, '#7a4a2a');
+  }
 
   // Water family (animated)
   {

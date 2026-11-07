@@ -2,7 +2,8 @@ import { BALANCE } from '../config/balance';
 import { formatDuration } from '../core/math';
 import { FOODS } from '../data/foods';
 import { COLOR_VARIANTS, SHOP } from '../data/shop';
-import { SKILLS } from '../data/skills';
+import { SKILLS, skillRoot } from '../data/skills';
+import { SLOT_KEYS, reqLabel, slotUnlocked } from '../systems/skills';
 import { SPECIES, getSpecies } from '../data/species';
 import type { Weather } from '../data/types';
 import { foodIconUrl, speciesPreviewUrl } from '../gfx/textures';
@@ -102,6 +103,7 @@ export class UI {
   private els: Record<string, HTMLElement> = {};
   private charRefresh: (() => CharPanelData) | null = null;
   private charEvolve: (() => void) | null = null;
+  private charEquip: ((skillId: string, slot: number) => void) | null = null;
   touch!: TouchControls;
   onInvTap: ((slot: number) => void) | null = null;
   onPromptTap: (() => void) | null = null;
@@ -224,7 +226,7 @@ export class UI {
       `<div class="statbar"><span>${label}</span><div class="bar"><div style="width:${Math.min(100, (v / max) * 100)}%;background:${color}"></div></div><span>${v}</span></div>`;
     const cards = SPECIES.map((s) => {
       const f = s.forms[0];
-      const q = SKILLS[f.skillQ];
+      const q = SKILLS[s.learnset[0].skill];
       return `
       <div class="card" data-id="${s.id}">
         <div class="portrait"><img src="${speciesPreviewUrl(s.id, 0, false)}" alt=""></div>
@@ -240,7 +242,7 @@ export class UI {
         ${stat('Sức mạnh', f.stats.power, statMax.power, '#ffa040')}
         ${stat('Phòng thủ', f.stats.defense, statMax.defense, '#9aa8ff')}
         ${stat('Sức bền', f.stats.stamina, statMax.stamina, '#c8e05a')}
-        <div class="skill"><b>Đòn cơ bản:</b> ${esc(f.basic.name)}<br><b>Kỹ năng khởi đầu [Q]:</b> ${esc(q.name)} — ${esc(q.desc)}</div>
+        <div class="skill"><b>Đòn cơ bản:</b> ${esc(f.basic.name)}<br><b>Chiêu khởi đầu [Q]:</b> ${esc(q.name)} — ${esc(q.desc)}<br><small>Học thêm ${s.learnset.length - 1} chiêu khi lên cấp, sinh tồn và tiến hóa.</small></div>
         <div class="evos">
           <div><img src="${speciesPreviewUrl(s.id, 0, false)}" alt="">${esc(f.name)}</div>
           <div><img src="${speciesPreviewUrl(s.id, 1, true)}" alt="">Dạng 2: ???</div>
@@ -458,7 +460,8 @@ export class UI {
     return o;
   }
 
-  openChar(getData: () => CharPanelData, onEvolve: () => void): void {
+  openChar(getData: () => CharPanelData, onEvolve: () => void, onEquip: (skillId: string, slot: number) => void): void {
+    this.charEquip = onEquip;
     const d = getData();
     const s = d.state;
     const sp = getSpecies(s.speciesId);
@@ -466,9 +469,6 @@ export class UI {
     const evoLine = sp.forms
       .map((ff, i) => `<div class="${i === s.form ? 'current' : ''}"><img src="${speciesPreviewUrl(sp.id, i, i > s.form, i === s.form ? s.colorVariant : 'goc')}" alt="">${i <= s.form ? esc(ff.name) : '???'}</div>`)
       .join('<div>➜</div>');
-    const skills = [f.skillQ, f.skillR]
-      .map((id, i) => (id ? `<div><kbd>${i ? 'R' : 'Q'}</kbd><b>${esc(SKILLS[id].name)}</b> — ${esc(SKILLS[id].desc)} <small>(hồi ${SKILLS[id].cooldownSec}s, ${SKILLS[id].stamina} thể lực)</small></div>` : `<div><kbd>R</kbd><i>Mở khóa ở dạng tiến hóa tiếp theo</i></div>`))
-      .join('');
     const html = `
       <h2>${esc(f.name)} <small style="font-size:14px;color:#a9b0bd">— ${esc(f.title)} • Hệ ${esc(sp.element)} • ${esc(sp.dietLabel)}</small></h2>
       <div class="char-grid">
@@ -480,9 +480,11 @@ export class UI {
             <tr><td>Tốc độ</td><td><b>${d.stats.speed}</b></td><td>Sức bền</td><td><b>${d.stats.stamina}</b></td></tr>
             <tr><td>Nhu cầu ăn</td><td><b>x${f.hungerMult.toFixed(2)}</b></td><td>Leo vách đá</td><td><b>${f.canClimbLedges ? 'Có' : 'Không'}</b></td></tr>
             <tr><td>Hạ gục</td><td>${s.stats.kills}</td><td>Ngày sống sót</td><td>${s.stats.daysSurvived}</td></tr>
+            <tr><td>Tinh anh ★</td><td>${s.stats.elites}</td><td>Chúa tể</td><td>${s.stats.bosses}</td></tr>
           </table>
-          <h3>Kỹ năng</h3>
-          <div style="font-size:13px"><div><kbd>Chuột</kbd><b>${esc(f.basic.name)}</b> — đòn cơ bản về hướng con trỏ</div>${skills}</div>
+          <h3>Chiêu thức</h3>
+          <div style="font-size:13px"><div><kbd>Chuột</kbd><b>${esc(f.basic.name)}</b> — đòn cơ bản về hướng con trỏ</div></div>
+          <div data-e="skill-area" style="font-size:13px"></div>
         </div>
       </div>
       <h3>Tiến hóa</h3>
@@ -500,6 +502,7 @@ export class UI {
   refreshChar(): void {
     if (this.overlayKind !== 'char' || !this.overlay || !this.charRefresh) return;
     const d = this.charRefresh();
+    this.renderSkills(d.state);
     const area = this.overlay.querySelector('[data-e=evo-area]') as HTMLElement;
     if (d.state.form >= 2) {
       area.innerHTML = '<p>Bạn đã đạt dạng tiến hóa tối thượng!</p>';
@@ -514,13 +517,54 @@ export class UI {
     area.querySelector('[data-a=evolve]')?.addEventListener('click', () => this.charEvolve?.());
   }
 
+  /** Learnset with mastery bars and Q/R/T equip buttons. */
+  private renderSkills(s: PlayerState): void {
+    const area = this.overlay?.querySelector('[data-e=skill-area]') as HTMLElement | null;
+    if (!area) return;
+    const sp = getSpecies(s.speciesId);
+    const rows = sp.learnset.map((entry) => {
+      const id = s.skills.find((k) => skillRoot(k) === entry.skill);
+      if (!id) {
+        const root = SKILLS[entry.skill];
+        return `<div class="skill-row locked"><b>🔒 ${esc(root.name)}</b><br><small>Mở khóa: ${esc(reqLabel(s, entry.req))}</small></div>`;
+      }
+      const sk = SKILLS[id];
+      const slot = s.equipped.indexOf(id);
+      const btns = SLOT_KEYS.map((k, i) => {
+        const open = slotUnlocked(s, i);
+        return `<button class="slot-btn${slot === i ? ' on' : ''}" data-equip="${id}" data-slot="${i}" ${open ? '' : 'disabled title="Mở ở dạng 2"'}>${k}</button>`;
+      }).join('');
+      let mastery = '';
+      if (sk.evolvesTo && sk.mastery) {
+        const m = Math.min(sk.mastery, s.mastery[id] ?? 0);
+        const next = SKILLS[sk.evolvesTo];
+        const formOk = s.form >= (sk.evolveForm ?? 0);
+        mastery = `<div class="mastery"><div class="bar"><div style="width:${(m / sk.mastery) * 100}%"></div></div>
+          <small>Thành thạo ${m}/${sk.mastery} ➜ <b>${esc(next.name)}</b>${formOk ? '' : ` (cần dạng ${(sk.evolveForm ?? 0) + 1})`}</small></div>`;
+      } else if (id !== entry.skill) mastery = '<small style="color:#ffd84a">⚡ Đã tiến hóa</small>';
+      const tier = id !== entry.skill ? ' ⚡' : '';
+      return `<div class="skill-row"><div class="slot-btns">${btns}</div><b style="color:#${sk.color.toString(16).padStart(6, '0')}">${esc(sk.name)}${tier}</b> — ${esc(sk.desc)}
+        <small>(hồi ${sk.cooldownSec}s, ${sk.stamina} thể lực)</small>${mastery}</div>`;
+    });
+    const html = `<p style="font-size:12px;color:#a9b0bd;margin:4px 0">Chiêu gắn vào ${SLOT_KEYS.join('/')} — ô ${SLOT_KEYS[2]} mở ở dạng 2. Dùng chiêu trúng địch để tăng thành thạo; đủ thành thạo chiêu sẽ tiến hóa.</p>${rows.join('')}`;
+    if (area.dataset.last === html) return;
+    area.dataset.last = html;
+    area.innerHTML = html;
+    area.querySelectorAll<HTMLButtonElement>('[data-equip]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.charEquip?.(b.dataset.equip as string, Number(b.dataset.slot));
+        this.refreshChar();
+      }),
+    );
+  }
+
   openPause(settings: Settings, cb: PauseCallbacks): void {
     const s = { ...settings };
     const controls = [
       ['WASD / Mũi tên', 'Di chuyển'],
       ['Shift', 'Chạy nhanh (tốn thể lực)'],
       ['Chuột trái', 'Tấn công về hướng con trỏ'],
-      ['Q / R', 'Kỹ năng'],
+      ['Q / R / T', 'Chiêu thức (gắn chiêu trong bảng Tab)'],
       ['Space', 'Né tránh'],
       ['E', 'Ăn / uống / nhặt / tương tác'],
       ['F', 'Nằm nghỉ (ngủ khi mệt)'],

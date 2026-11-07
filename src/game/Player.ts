@@ -1,15 +1,16 @@
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
-import { SKILLS } from '../data/skills';
 import type { Diet, FormDef, SkillDef, SpeciesDef, Stats, Weather } from '../data/types';
 import { ensurePlayerTexture } from '../gfx/textures';
 import type { AudioSystem } from '../systems/audio';
 import { Cooldowns } from '../systems/combat';
 import { computeStats, formOf, powerScore, speciesOf, type PlayerState } from '../systems/playerState';
+import { equippedSkill } from '../systems/skills';
+import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { RestController, StaminaClock, fatigueSpeedMult } from '../systems/survival';
 import { moveCircle } from '../world/collision';
-import type { WorldData } from '../world/tiles';
-import type { CombatSystem } from './CombatSystem';
+import { TT, type WorldData } from '../world/tiles';
+import type { CombatSystem, Creature } from './CombatSystem';
 import type { Effects, ParticleKind } from './Effects';
 import type { PlayerInfo } from './Npcs';
 
@@ -19,8 +20,8 @@ export interface PlayerInput {
   sprint: boolean;
   aim: number;
   attack: boolean;
-  q: boolean;
-  r: boolean;
+  /** Skill slot pressed this frame (0 = Q, 1 = R, 2 = T), or -1. */
+  skill: number;
   dodge: boolean;
 }
 
@@ -49,6 +50,9 @@ interface Buff {
   defenseMult: number;
   regen: number;
   speedMult: number;
+  powerMult: number;
+  lifesteal: number;
+  thorns: number;
   color: number;
 }
 
@@ -87,6 +91,10 @@ export class Player implements PlayerInfo {
   private dashVy = 0;
   stunT = 0;
   buff: Buff | null = null;
+  status = new StatusEffects<Creature>();
+  inSwamp = false;
+  /** Called when a skill fires (after its windup). */
+  onSkillCast: ((sk: SkillDef) => void) | null = null;
   moving = false;
   sprinting = false;
   facing = 1;
@@ -146,11 +154,16 @@ export class Player implements PlayerInfo {
     return d;
   }
 
-  skillQ(): SkillDef {
-    return SKILLS[this.form.skillQ];
+  power(): number {
+    return this.stats.power * (this.buff?.powerMult ?? 1);
   }
-  skillR(): SkillDef | null {
-    return this.form.skillR ? SKILLS[this.form.skillR] : null;
+
+  skillAt(slot: number): SkillDef | null {
+    return equippedSkill(this.state, slot);
+  }
+
+  static cdKey(sk: SkillDef): string {
+    return `sk_${sk.id}`;
   }
 
   /** Re-reads form/level data and swaps textures (after evolution, level-up or colour change). */
@@ -210,6 +223,10 @@ export class Player implements PlayerInfo {
     this.outOfStaminaLock = Math.max(0, this.outOfStaminaLock - dt);
     this.cds.tick(dt);
     if (this.buff && env.now >= this.buff.until) this.buff = null;
+    if (this.status.stunned) this.stun(this.status.left('stun'));
+    const tx = Math.floor(this.x / BALANCE.tile);
+    const ty = Math.floor(this.y / BALANCE.tile);
+    this.inSwamp = env.world.tiles[ty * env.world.w + tx] === TT.SWAMP;
 
     if (!this.alive) {
       this.play('dead');
@@ -231,7 +248,7 @@ export class Player implements PlayerInfo {
     if (this.evolving) {
       this.vx = this.vy = 0;
     } else {
-      if (this.rest.mode !== 'awake' && (wantsMove || input.attack || input.q || input.r || input.dodge)) this.rest.wake();
+      if (this.rest.mode !== 'awake' && (wantsMove || input.attack || input.skill >= 0 || input.dodge)) this.rest.wake();
       const canAct = !this.busy && this.rest.mode === 'awake';
 
       if (input.dodge && canAct && this.cds.ready('dodge')) {
@@ -247,10 +264,8 @@ export class Player implements PlayerInfo {
         }
       } else if (input.attack && canAct && this.cds.ready('basic')) {
         this.startBasic(input.aim, env);
-      } else if (input.q && canAct) {
-        this.startSkill('q', input.aim, env);
-      } else if (input.r && canAct) {
-        this.startSkill('r', input.aim, env);
+      } else if (input.skill >= 0 && canAct) {
+        this.startSkill(input.skill, input.aim, env);
       }
     }
 
@@ -264,6 +279,8 @@ export class Player implements PlayerInfo {
     if (this.sprinting) speed *= BALANCE.survival.sprintSpeedMult;
     if (env.weather === 'rain') speed *= BALANCE.weather.rainSpeedMult;
     if (this.buff) speed *= this.buff.speedMult;
+    speed *= this.status.speedMult();
+    if (this.inSwamp && !this.species.swampWalker) speed *= BALANCE.survival.swampSpeedMult;
     if (this.action) speed *= this.action.moveMult;
     if (this.stunT > 0) speed = 0;
     const tvx = this.moving ? dirX * speed : 0;
@@ -346,7 +363,7 @@ export class Player implements PlayerInfo {
     this.pendingFire = {
       t: A.windupSec,
       fn: () => {
-        env.combat.arc(this, aim, A.arcDeg, A.range + this.radius * 0.6, this.stats.power, A.dmgMult, A.knockback, A.activeSec, color);
+        env.combat.arc(this, aim, A.arcDeg, A.range + this.radius * 0.6, this.power(), A.dmgMult, A.knockback, A.activeSec, color);
         env.audio.play('attack');
       },
     };
@@ -365,10 +382,10 @@ export class Player implements PlayerInfo {
     }
   }
 
-  private startSkill(slot: 'q' | 'r', aim: number, env: PlayerEnv): void {
-    const sk = slot === 'q' ? this.skillQ() : this.skillR();
+  private startSkill(slot: number, aim: number, env: PlayerEnv): void {
+    const sk = this.skillAt(slot);
     if (!sk) return;
-    const id = `skill_${slot}`;
+    const id = Player.cdKey(sk);
     if (!this.cds.ready(id)) return;
     const cost = sk.stamina * this.form.staminaCostMult;
     if (this.state.stamina < cost) {
@@ -383,8 +400,10 @@ export class Player implements PlayerInfo {
   }
 
   private fireSkill(sk: SkillDef, aim: number, env: PlayerEnv): void {
-    const p = this.stats.power;
+    const p = this.power();
+    const opts = { status: sk.status ?? null, tag: sk.id };
     env.audio.play('skill');
+    this.onSkillCast?.(sk);
     const pk = sk.particle as ParticleKind;
     switch (sk.kind) {
       case 'dash': {
@@ -393,7 +412,7 @@ export class Player implements PlayerInfo {
         this.dashVx = Math.cos(aim) * speed;
         this.dashVy = Math.sin(aim) * speed;
         this.iframes = Math.max(this.iframes, this.dashT * 0.7);
-        env.combat.circle(this, this.x, this.y, sk.radius + this.radius * 0.5, p, sk.dmgMult, sk.knockback, this.dashT + 0.05, true, sk.color);
+        env.combat.circle(this, this.x, this.y, sk.radius + this.radius * 0.5, p, sk.dmgMult, sk.knockback, this.dashT + 0.05, true, sk.color, opts);
         env.fx.burst(this.x, this.y, pk, 10, { speed: 90, life: 0.5, tint: sk.color });
         break;
       }
@@ -402,12 +421,12 @@ export class Player implements PlayerInfo {
         const spread = ((sk.spreadDeg ?? 0) * Math.PI) / 180;
         for (let i = 0; i < n; i++) {
           const a = n === 1 ? aim : aim - spread + (2 * spread * i) / (n - 1);
-          env.combat.projectile(this, this.x + Math.cos(a) * this.radius, this.y - this.radius * 0.6 + Math.sin(a) * this.radius, a, sk.speed ?? 500, sk.range, sk.radius, p, sk.dmgMult, sk.knockback, sk.color, pk);
+          env.combat.projectile(this, this.x + Math.cos(a) * this.radius, this.y - this.radius * 0.6 + Math.sin(a) * this.radius, a, sk.speed ?? 500, sk.range, sk.radius, p, sk.dmgMult, sk.knockback, sk.color, pk, opts);
         }
         break;
       }
       case 'cone': {
-        env.combat.arc(this, aim, sk.arcDeg ?? 60, sk.range, p, sk.dmgMult, sk.knockback, 0.25, sk.color);
+        env.combat.arc(this, aim, sk.arcDeg ?? 60, sk.range, p, sk.dmgMult, sk.knockback, 0.25, sk.color, opts);
         env.fx.burst(this.x + Math.cos(aim) * 20, this.y - 8 + Math.sin(aim) * 20, pk, 26, {
           speed: sk.range * 2.2,
           life: 0.45,
@@ -419,7 +438,8 @@ export class Player implements PlayerInfo {
         break;
       }
       case 'nova': {
-        env.combat.circle(this, this.x, this.y, sk.radius, p, sk.dmgMult, sk.knockback, 0.15, false, sk.color);
+        env.combat.circle(this, this.x, this.y, sk.radius, p, sk.dmgMult, sk.knockback, 0.15, false, sk.color, opts);
+        if (sk.knockback < 0) env.fx.ring(this.x, this.y, sk.color, sk.radius, 10, 0.55, 5);
         env.fx.ring(this.x, this.y, sk.color, 10, sk.radius, 0.45, 5);
         env.fx.ring(this.x, this.y, 0xffffff, 6, sk.radius * 0.7, 0.35, 2);
         env.fx.burst(this.x, this.y, pk, 24, { speed: sk.radius * 2.5, life: 0.5, tint: sk.color });
@@ -433,8 +453,15 @@ export class Player implements PlayerInfo {
           defenseMult: b.defenseMult ?? 1,
           regen: b.regenFracPerSec ?? 0,
           speedMult: b.speedMult ?? 1,
+          powerMult: b.powerMult ?? 1,
+          lifesteal: b.lifesteal ?? 0,
+          thorns: b.thorns ?? 0,
           color: sk.color,
         };
+        if (b.cleanse) {
+          this.status.clear();
+          this.stunT = 0;
+        }
         env.fx.ring(this.x, this.y, sk.color, 4, 50, 0.5, 4);
         env.fx.burst(this.x, this.y - 10, pk, 14, { speed: 60, life: 0.7, tint: sk.color });
         break;
@@ -461,7 +488,12 @@ export class Player implements PlayerInfo {
     this.shadow.setPosition(this.x, this.y + 1).setDepth(this.y - 30);
     if (this.hurtFlash > 0.15) this.sprite.setTintFill(0xffffff);
     else if (this.iframes > 0 && this.dodgeT <= 0 && this.dashT <= 0) this.sprite.setTint(0xffb0b0).setAlpha(Math.floor(this.scene.time.now / 70) % 2 ? 0.6 : 1);
-    else if (!this.evolving) this.sprite.clearTint().setAlpha(this.dodgeT > 0 ? 0.7 : 1);
+    else if (!this.evolving) {
+      const st = this.status.list()[0];
+      if (st && Math.floor(this.scene.time.now / 160) % 2) this.sprite.setTint(STATUS_INFO[st].tint);
+      else this.sprite.clearTint();
+      this.sprite.setAlpha(this.dodgeT > 0 ? 0.7 : 1);
+    }
   }
 
   destroy(): void {

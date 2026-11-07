@@ -12,6 +12,7 @@ const TILE_COLORS: Record<number, string> = {
   [TT.LEDGE]: '#5a5244',
   [TT.FORD]: '#6aa6d8',
   [TT.WALL]: '#2a2824',
+  [TT.SWAMP]: '#4c5a34',
 };
 
 export interface MinimapDots {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/config/balance';
-import { BLK, TT } from '../src/world/tiles';
+import { BIOME_IDS, BLK, TT } from '../src/world/tiles';
 import { generateWorld, stepDistances, verifySpawn } from '../src/world/worldGen';
 import { findDrinkableWater, isPositionFree } from '../src/world/collision';
 
@@ -39,14 +39,14 @@ describe('world generation', () => {
 
     it(`seed "${seed}": all biomes exist and are reachable`, () => {
       const w = generateWorld(seed);
-      const counts = [0, 0, 0, 0];
-      const reached = [0, 0, 0, 0];
+      const counts = BIOME_IDS.map(() => 0);
+      const reached = BIOME_IDS.map(() => 0);
       for (let i = 0; i < w.w * w.h; i++) {
         if (w.tiles[i] === TT.WALL) continue;
         counts[w.biome[i]]++;
         if (w.reach1[i]) reached[w.biome[i]]++;
       }
-      for (let b = 0; b < 4; b++) {
+      for (let b = 0; b < BIOME_IDS.length; b++) {
         expect(counts[b], `biome ${b} exists`).toBeGreaterThan(300);
         expect(reached[b], `biome ${b} reachable at form 1`).toBeGreaterThan(150);
       }

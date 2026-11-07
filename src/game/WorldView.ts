@@ -110,6 +110,9 @@ export class WorldView {
           case TT.WALL:
             idx = TI.WALL[h % 2];
             break;
+          case TT.SWAMP:
+            idx = n > 0.6 && h % 3 === 0 ? TI.SWAMP_REEDS : TI.SWAMP[h % 3 === 1 ? 1 : 0];
+            break;
           case TT.FORD:
             idx = TI.FORD;
             break;

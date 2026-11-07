@@ -675,6 +675,43 @@ kbd {
   color: var(--accent);
   font-weight: 700;
 }
+.skill-row {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.skill-row.locked {
+  opacity: 0.6;
+}
+.skill-row .slot-btns {
+  float: right;
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+.slot-btn {
+  min-width: 30px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.slot-btn.on {
+  background: #ffcf4a;
+  color: #1a1a1a;
+  border-color: #ffcf4a;
+}
+.skill-row .mastery .bar {
+  height: 5px;
+  margin: 4px 0 2px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.skill-row .mastery .bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #ffcf4a, #ff8a3a);
+}
 .checklist {
   list-style: none;
   padding: 0;
@@ -825,7 +862,7 @@ body.touch #hud .skillbar {
   right: calc(env(safe-area-inset-right, 0px) + 10px);
   bottom: 10px;
   width: 250px;
-  height: 210px;
+  height: 236px;
 }
 .tb {
   position: absolute;
@@ -881,9 +918,13 @@ body.touch #hud .skillbar {
   right: 98px;
   bottom: 76px;
 }
+.tb[data-b='t'] {
+  right: 40px;
+  bottom: 166px;
+}
 .tb[data-b='dodge'] {
-  right: 26px;
-  bottom: 104px;
+  right: 10px;
+  bottom: 100px;
 }
 .tb.small {
   width: 52px;
@@ -900,8 +941,8 @@ body.touch #hud .skillbar {
   bottom: 74px;
 }
 .tb[data-b='sprint'] {
-  right: 100px;
-  bottom: 146px;
+  right: 112px;
+  bottom: 150px;
 }
 .tb.toggle.on {
   background: rgba(200, 224, 90, 0.5);

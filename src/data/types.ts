@@ -1,5 +1,5 @@
 export type Diet = 'herbivore' | 'carnivore' | 'omnivore';
-export type Biome = 'grass' | 'forest' | 'lake' | 'rock';
+export type Biome = 'grass' | 'forest' | 'lake' | 'rock' | 'swamp';
 export type Weather = 'clear' | 'rain' | 'heat';
 
 export interface Palette {
@@ -80,6 +80,28 @@ export interface AttackDef {
 
 export type SkillKind = 'dash' | 'projectile' | 'cone' | 'nova' | 'buff';
 
+export type StatusKind = 'burn' | 'poison' | 'slow' | 'stun';
+
+/** A status applied on hit. `mag` is the slow fraction, or DoT per second as a multiple of the attacker's power. */
+export interface StatusSpec {
+  kind: StatusKind;
+  sec: number;
+  mag?: number;
+}
+
+export interface BuffDef {
+  defenseMult?: number;
+  regenFracPerSec?: number;
+  speedMult?: number;
+  powerMult?: number;
+  /** Fraction of damage dealt returned as HP. */
+  lifesteal?: number;
+  /** Fraction of melee damage taken reflected to the attacker. */
+  thorns?: number;
+  /** Removes negative statuses when cast. */
+  cleanse?: boolean;
+}
+
 export interface SkillDef {
   id: string;
   name: string;
@@ -91,15 +113,39 @@ export interface SkillDef {
   dmgMult: number;
   range: number;
   radius: number;
+  /** Negative values pull targets toward the caster. */
   knockback: number;
   arcDeg?: number;
   speed?: number;
   count?: number;
   spreadDeg?: number;
   durationSec?: number;
-  buff?: { defenseMult?: number; regenFracPerSec?: number; speedMult?: number };
+  buff?: BuffDef;
+  status?: StatusSpec;
   color: number;
   particle: 'spark' | 'leaf' | 'drop' | 'dust';
+  /** Skill this one turns into once mastered. */
+  evolvesTo?: string;
+  /** Mastery points needed to evolve (hits for attacks, casts for buffs). */
+  mastery?: number;
+  /** Minimum form index (0-based) before the evolution can happen. */
+  evolveForm?: number;
+}
+
+/** Conditions for learning a skill; every listed field must be met. */
+export interface LearnReq {
+  level?: number;
+  form?: number;
+  kills?: number;
+  elites?: number;
+  days?: number;
+  drinks?: number;
+  stones?: number;
+}
+
+export interface LearnEntry {
+  skill: string;
+  req: LearnReq;
 }
 
 export interface FormDef {
@@ -112,8 +158,6 @@ export interface FormDef {
   thirstMult: number;
   staminaCostMult: number;
   basic: AttackDef;
-  skillQ: string;
-  skillR: string | null;
   canClimbLedges: boolean;
   /** 0..1 reduction of heat thirst penalty. */
   heatResist: number;
@@ -129,6 +173,10 @@ export interface SpeciesDef {
   dietLabel: string;
   blurb: string;
   forms: [FormDef, FormDef, FormDef];
+  /** Skills learned over a run, in unlock order. The first entry is known from the start. */
+  learnset: LearnEntry[];
+  /** Ignores the movement penalty of swamp mud. */
+  swampWalker?: boolean;
 }
 
 export type Temperament = 'prey' | 'skittish' | 'neutral' | 'territorial' | 'predator' | 'apex';
@@ -158,7 +206,29 @@ export interface NpcDef {
     cooldownSec: number;
     dmgMult: number;
     knockback: number;
+    status?: StatusSpec;
   };
+  /** Status inflicted by the basic attack. */
+  attackStatus?: StatusSpec;
+  /** Spit / spine volley fired from a distance. */
+  ranged?: {
+    name: string;
+    range: number;
+    speed: number;
+    radius: number;
+    windupSec: number;
+    cooldownSec: number;
+    dmgMult: number;
+    knockback: number;
+    count: number;
+    spreadDeg: number;
+    color: number;
+    status?: StatusSpec;
+    /** Backs away when the target gets too close. */
+    kite?: boolean;
+  };
+  /** Spawns in groups of this size; members join each other's fights. */
+  pack?: number;
   drops: number;
   exp: number;
   population: number;

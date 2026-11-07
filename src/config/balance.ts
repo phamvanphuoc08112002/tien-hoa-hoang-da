@@ -7,8 +7,8 @@ export const BALANCE = {
   tile: 32,
 
   world: {
-    widthTiles: 180,
-    heightTiles: 180,
+    widthTiles: 260,
+    heightTiles: 260,
     sectorTiles: 20,
     /** Spawn must have suitable food / water within this many BFS steps. */
     spawnMaxFoodSteps: 30,
@@ -38,8 +38,8 @@ export const BALANCE = {
   },
 
   survival: {
-    hungerDecayPerSec: 100 / 720,
-    thirstDecayPerSec: 100 / 600,
+    hungerDecayPerSec: 100 / 600,
+    thirstDecayPerSec: 100 / 500,
     sprintDecayMult: 1.6,
     combatDecayMult: 1.25,
     restDecayMult: 0.7,
@@ -47,7 +47,7 @@ export const BALANCE = {
     warnLevel: 25,
     criticalLevel: 8,
     /** Fraction of max HP lost per second while starving or dehydrated. */
-    starveDamageFracPerSec: 0.008,
+    starveDamageFracPerSec: 0.012,
     staminaRegenPerSec: 16,
     staminaRegenDelaySec: 0.7,
     sprintStaminaPerSec: 15,
@@ -56,8 +56,8 @@ export const BALANCE = {
     /** Rest only becomes effective after lying still this long (anti toggle-spam). */
     restSettleSec: 1.4,
     restToggleCooldownSec: 0.6,
-    hpRegenFracPerSec: 0.003,
-    hpRegenMinNeeds: 45,
+    hpRegenFracPerSec: 0.002,
+    hpRegenMinNeeds: 55,
     restHpMult: 2.5,
     sleepHpMult: 4,
     fatigueGainPerSec: 100 / 960,
@@ -71,22 +71,60 @@ export const BALANCE = {
     sleepFatigueRecoverPerSec: 100 / 40,
     sleepOutsideRecoverMult: 0.6,
     restFatigueRecoverPerSec: 100 / 400,
+    /** Movement multiplier in swamp mud (species with swampWalker ignore it). */
+    swampSpeedMult: 0.75,
+    /** Drinking murky swamp water poisons non-swamp species for this long. */
+    swampWaterPoisonSec: 8,
   },
 
   combat: {
     defenseK: 40,
-    playerIFramesSec: 0.45,
+    playerIFramesSec: 0.35,
     npcIFramesSec: 0.12,
     knockbackDecay: 9,
     hitStunSec: 0.16,
     dodgeDurationSec: 0.2,
     dodgeSpeed: 520,
-    dodgeCooldownSec: 1.15,
-    dodgeStamina: 18,
+    dodgeCooldownSec: 1.3,
+    dodgeStamina: 20,
     combatTimeoutSec: 5,
     /** Max NPCs allowed to actively pursue the player at once. */
-    maxPlayerAggressors: 3,
+    maxPlayerAggressors: 4,
     damageVariance: 0.1,
+    /** Mastery gained per enemy hit with a skill (buffs gain 1 per cast). */
+    masteryPerHit: 1,
+    masteryKillBonus: 2,
+  },
+
+  /** World danger: creatures get stronger farther from spawn and as days pass. */
+  threat: {
+    /** Tiles from spawn per danger tier. */
+    tierTiles: 60,
+    maxTier: 3,
+    hpPerTier: 0.22,
+    powerPerTier: 0.16,
+    defensePerTier: 0.12,
+    levelPerTier: 2,
+    /** Extra power/HP per survived day, capped. */
+    perDay: 0.04,
+    maxDayBonus: 0.4,
+    eliteChance: 0.07,
+    eliteChancePerTier: 0.04,
+    eliteHp: 1.8,
+    elitePower: 1.35,
+    eliteDefense: 1.25,
+    eliteSpeed: 1.1,
+    eliteExp: 2.5,
+    eliteLevel: 3,
+    /** Bosses enrage below this HP fraction. */
+    enrageAt: 0.5,
+    enrageSpeed: 1.25,
+    enrageCooldown: 0.6,
+    /** Every Nth night is a blood moon. */
+    bloodMoonEvery: 4,
+    bloodMoonPower: 1.25,
+    bloodMoonDetect: 1.3,
+    bloodMoonPopulation: 1.5,
   },
 
   progression: {
@@ -123,11 +161,13 @@ export const BALANCE = {
 
   evolution: {
     requiredLevel: [5, 10] as number[],
+    /** Elite kills required as an evolution trial (per form). */
+    requiredElites: [0, 1] as number[],
     durationSec: [20, 40] as number[],
     minHunger: 50,
     minThirst: 50,
     /** Glow of evolving attracts predators within this radius. */
-    lureRadius: 380,
+    lureRadius: 480,
   },
 
   npc: {
@@ -138,14 +178,18 @@ export const BALANCE = {
     spawnViewMargin: 220,
     carcassLifetimeSec: 120,
     giveUpChaseSec: 10,
-    lowHpRetreatFrac: 0.3,
+    lowHpRetreatFrac: 0.25,
     hungerDecayPerSec: 100 / 300,
     thirstDecayPerSec: 100 / 260,
     grazeConsumeChance: 0.35,
+    /** Population multiplier for the larger map (uniques excluded). */
+    populationScale: 1.8,
+    /** Pack members within this radius join a fight. */
+    packAlertRadius: 340,
   },
 
   resources: {
-    maxCarcasses: 30,
+    maxCarcasses: 40,
     maxParticles: 220,
     maxDamageTexts: 30,
   },

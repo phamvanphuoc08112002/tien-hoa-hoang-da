@@ -4,6 +4,7 @@ import { SPECIES } from '../data/species';
 import { COLOR_VARIANTS } from '../data/shop';
 import type { Weather } from '../data/types';
 import type { PlayerState } from './playerState';
+import { ensureSkillState } from './skills';
 
 export const SAVE_KEY = 'tien-hoa-hoang-da.save';
 export const SAVE_BACKUP_KEY = 'tien-hoa-hoang-da.save.bak';
@@ -24,6 +25,8 @@ export interface WorldSave {
   collectedCoins: number[];
   stonesUsed: number[];
   alphaDefeatedAt: number | null;
+  /** Simulated time each unique boss was last defeated, by NPC id. */
+  bosses: Record<string, number>;
 }
 
 export interface SaveData {
@@ -101,9 +104,18 @@ function sanitize(d: SaveData): SaveData {
   p.coins = Math.max(0, Math.floor(p.coins));
   p.slots = c(Math.floor(p.slots), 1, BALANCE.inventory.maxSlots);
   if (!p.unlockedColors.includes(p.colorVariant)) p.colorVariant = 'goc';
-  d.world.weatherRemaining = isNum(d.world.weatherRemaining) ? d.world.weatherRemaining : 60;
-  d.world.weatherRolls = isNum(d.world.weatherRolls) ? d.world.weatherRolls : 0;
-  d.world.alphaDefeatedAt = isNum(d.world.alphaDefeatedAt) ? d.world.alphaDefeatedAt : null;
+  for (const k of ['kills', 'foodEaten', 'drinks', 'daysSurvived', 'timeAlive', 'evolutions', 'elites', 'bosses', 'stones', 'bloodMoons'] as const) {
+    if (!isNum(p.stats[k])) p.stats[k] = 0;
+  }
+  ensureSkillState(p);
+  const w = d.world;
+  w.weatherRemaining = isNum(w.weatherRemaining) ? w.weatherRemaining : 60;
+  w.weatherRolls = isNum(w.weatherRolls) ? w.weatherRolls : 0;
+  w.alphaDefeatedAt = isNum(w.alphaDefeatedAt) ? w.alphaDefeatedAt : null;
+  const bosses: Record<string, number> = {};
+  if (w.bosses && typeof w.bosses === 'object') for (const [k, v] of Object.entries(w.bosses)) if (isNum(v)) bosses[k] = v;
+  if (w.alphaDefeatedAt !== null && bosses.nham_chua === undefined) bosses.nham_chua = w.alphaDefeatedAt;
+  w.bosses = bosses;
   return d;
 }
 

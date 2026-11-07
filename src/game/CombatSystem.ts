@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { BALANCE } from '../config/balance';
+import type { StatusSpec } from '../data/types';
 import { HitInstance, arcHits, circleHits, computeDamage } from '../systems/combat';
+import { STATUS_INFO, type StatusEffects } from '../systems/status';
 import { BLK, type WorldData } from '../world/tiles';
 import type { Effects, ParticleKind } from './Effects';
 
@@ -18,7 +20,14 @@ export interface Creature {
   kbx: number;
   kby: number;
   iframes: number;
+  status: StatusEffects<Creature>;
   defense(): number;
+}
+
+/** Extra options for a hit volume. */
+export interface HitOpts {
+  status?: StatusSpec | null;
+  tag?: string | null;
 }
 
 interface ActiveHit {
@@ -68,6 +77,10 @@ export interface DamageEvent {
   target: Creature;
   damage: number;
   killed: boolean;
+  /** Skill id that dealt the damage, if any. */
+  tag: string | null;
+  /** Damage over time (burn/poison/thorns): no hit reaction. */
+  dot: boolean;
 }
 
 export class CombatSystem {
@@ -85,20 +98,20 @@ export class CombatSystem {
   ) {}
 
   /** Melee arc in front of the owner. Active for `duration`, each target hit at most once. */
-  arc(owner: Creature, dir: number, arcDeg: number, range: number, power: number, mult: number, knockback: number, duration: number, color = 0xffffff): void {
-    const inst = new HitInstance(owner.uid, mult, knockback);
+  arc(owner: Creature, dir: number, arcDeg: number, range: number, power: number, mult: number, knockback: number, duration: number, color = 0xffffff, opts: HitOpts = {}): void {
+    const inst = new HitInstance(owner.uid, mult, knockback, opts.status ?? null, opts.tag ?? null);
     this.hits.push({ inst, owner, shape: 'arc', x: owner.x, y: owner.y, dir, arc: (arcDeg * Math.PI) / 180, range, radius: 0, power, t: duration, follow: true, color });
   }
 
-  circle(owner: Creature, x: number, y: number, radius: number, power: number, mult: number, knockback: number, duration: number, follow: boolean, color = 0xffffff): void {
-    const inst = new HitInstance(owner.uid, mult, knockback);
+  circle(owner: Creature, x: number, y: number, radius: number, power: number, mult: number, knockback: number, duration: number, follow: boolean, color = 0xffffff, opts: HitOpts = {}): void {
+    const inst = new HitInstance(owner.uid, mult, knockback, opts.status ?? null, opts.tag ?? null);
     this.hits.push({ inst, owner, shape: 'circle', x, y, dir: 0, arc: 0, range: 0, radius, power, t: duration, follow, color });
   }
 
-  projectile(owner: Creature, x: number, y: number, dir: number, speed: number, range: number, r: number, power: number, mult: number, knockback: number, tint: number, particle: ParticleKind): void {
+  projectile(owner: Creature, x: number, y: number, dir: number, speed: number, range: number, r: number, power: number, mult: number, knockback: number, tint: number, particle: ParticleKind, opts: HitOpts = {}): void {
     const sprite = this.scene.add.image(x, y, 'p_bubble').setScale(Math.max(1.2, r / 5)).setTint(tint).setDepth(9400);
     this.projectiles.push({
-      inst: new HitInstance(owner.uid, mult, knockback),
+      inst: new HitInstance(owner.uid, mult, knockback, opts.status ?? null, opts.tag ?? null),
       owner,
       x,
       y,
@@ -126,6 +139,10 @@ export class CombatSystem {
     this.removeTelegraphs(uid);
   }
 
+  private friendly(owner: Creature, t: Creature): boolean {
+    return !owner.isPlayer && !t.isPlayer && t.kind === owner.kind;
+  }
+
   update(dt: number): void {
     for (let i = this.hits.length - 1; i >= 0; i--) {
       const h = this.hits[i];
@@ -139,12 +156,11 @@ export class CombatSystem {
       }
       const reach = h.shape === 'arc' ? h.range : h.radius;
       for (const t of this.queryTargets(h.x, h.y, reach + 40)) {
-        if (!t.alive || t.uid === h.owner.uid) continue;
-        if (!h.owner.isPlayer && !t.isPlayer && t.kind === h.owner.kind) continue;
+        if (!t.alive || t.uid === h.owner.uid || this.friendly(h.owner, t)) continue;
         const inside = h.shape === 'arc' ? arcHits(h.x, h.y, h.dir, h.arc, h.range, t.x, t.y, t.radius) : circleHits(h.x, h.y, h.radius, t.x, t.y, t.radius);
         if (!inside || !h.inst.tryHit(t.uid)) continue;
         const ang = Math.atan2(t.y - h.y, t.x - h.x);
-        this.applyDamage(h.owner, t, h.power, h.inst.damageMult, h.inst.knockback, Math.cos(ang), Math.sin(ang));
+        this.applyDamage(h.owner, t, h.power, h.inst, Math.cos(ang), Math.sin(ang));
       }
       h.t -= dt;
       if (h.t <= 0) this.hits.splice(i, 1);
@@ -162,10 +178,10 @@ export class CombatSystem {
       let dead = p.life <= 0 || outside || this.world.blocked[pty * this.world.w + ptx] === BLK.SOLID;
       if (!dead) {
         for (const t of this.queryTargets(p.x, p.y, p.r + 40)) {
-          if (!t.alive || t.uid === p.owner.uid) continue;
+          if (!t.alive || t.uid === p.owner.uid || this.friendly(p.owner, t)) continue;
           if (!circleHits(p.x, p.y, p.r, t.x, t.y, t.radius) || !p.inst.tryHit(t.uid)) continue;
           const len = Math.hypot(p.vx, p.vy) || 1;
-          this.applyDamage(p.owner, t, p.power, p.inst.damageMult, p.inst.knockback, p.vx / len, p.vy / len);
+          this.applyDamage(p.owner, t, p.power, p.inst, p.vx / len, p.vy / len);
           dead = true;
           break;
         }
@@ -184,20 +200,37 @@ export class CombatSystem {
     }
   }
 
-  applyDamage(attacker: Creature, target: Creature, power: number, mult: number, knockback: number, dx: number, dy: number): number {
+  applyDamage(attacker: Creature, target: Creature, power: number, inst: HitInstance, dx: number, dy: number): number {
     if (target.iframes > 0 || !target.alive) return 0;
-    const dmg = computeDamage(power, mult, target.defense(), Math.random());
+    const dmg = computeDamage(power, inst.damageMult, target.defense(), Math.random());
     const real = target.isPlayer && this.godMode ? 0 : dmg;
     target.hp = Math.max(0, target.hp - real);
     const massFactor = 14 / Math.max(14, target.radius);
-    target.kbx += dx * knockback * massFactor;
-    target.kby += dy * knockback * massFactor;
+    target.kbx += dx * inst.knockback * massFactor;
+    target.kby += dy * inst.knockback * massFactor;
     target.iframes = target.isPlayer ? BALANCE.combat.playerIFramesSec : BALANCE.combat.npcIFramesSec;
     const killed = target.hp <= 0;
+    if (inst.status && !killed) {
+      const st = inst.status;
+      const mag = st.kind === 'burn' || st.kind === 'poison' ? (st.mag ?? 0.3) * power : st.mag ?? 0;
+      target.status.apply(st.kind, st.sec, mag, attacker);
+      const info = STATUS_INFO[st.kind];
+      this.fx.text(target.x, target.y - target.radius * 2 - 20, `${info.icon} ${info.name}`, '#ffffff', 12);
+    }
     this.fx.burst(target.x, target.y - target.radius * 0.6, 'star', 4, { speed: 120, life: 0.25 });
     this.fx.text(target.x + (Math.random() - 0.5) * 10, target.y - target.radius * 2 - 6, String(dmg), target.isPlayer ? '#ff6a6a' : '#fff3a0', target.isPlayer ? 18 : 15);
-    this.onDamage({ attacker, target, damage: real, killed });
+    this.onDamage({ attacker, target, damage: real, killed, tag: inst.tag, dot: false });
     return real;
+  }
+
+  /** Damage that ignores defense, iframes and knockback (burn, poison, thorns). */
+  dotDamage(target: Creature, amount: number, source: Creature | null, color: string): void {
+    if (!target.alive || amount <= 0) return;
+    const dmg = Math.max(1, Math.round(amount));
+    const real = target.isPlayer && this.godMode ? 0 : dmg;
+    target.hp = Math.max(0, target.hp - real);
+    this.fx.text(target.x + (Math.random() - 0.5) * 14, target.y - target.radius * 2 - 4, String(dmg), color, 12);
+    this.onDamage({ attacker: source ?? target, target, damage: real, killed: target.hp <= 0, tag: null, dot: true });
   }
 
   draw(g: Phaser.GameObjects.Graphics, debug: boolean, timeNow: number): void {

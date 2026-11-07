@@ -46,6 +46,13 @@ export const SPECIES: SpeciesDef[] = [
     diet: 'herbivore',
     dietLabel: 'Ăn cỏ',
     blurb: 'Bền bỉ, phòng thủ dày. Sống nhờ cỏ non, lá và quả. Ít kẻ thù coi nó là con mồi dễ dàng.',
+    learnset: [
+      { skill: 'huc_sung', req: {} },
+      { skill: 'giap_reu', req: { level: 3 } },
+      { skill: 'day_leo', req: { days: 2 } },
+      { skill: 'dia_chan', req: { form: 1 } },
+      { skill: 'co_thu_phan', req: { form: 2 } },
+    ],
     forms: [
       {
         name: 'Chồi Sừng',
@@ -57,8 +64,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1,
         staminaCostMult: 0.85,
         basic: atk('Húc', 44, 90, 0.17, 0.55, 6, 1, 230),
-        skillQ: 'huc_sung',
-        skillR: null,
         canClimbLedges: false,
         heatResist: 0,
         art: {
@@ -78,8 +83,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.1,
         staminaCostMult: 0.85,
         basic: atk('Húc Rêu', 54, 100, 0.18, 0.55, 7, 1.05, 280),
-        skillQ: 'huc_sung',
-        skillR: 'giap_reu',
         canClimbLedges: true,
         heatResist: 0.25,
         art: {
@@ -99,8 +102,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.2,
         staminaCostMult: 0.85,
         basic: atk('Sừng Cổ Thụ', 66, 110, 0.2, 0.55, 8, 1.1, 340),
-        skillQ: 'huc_sung_2',
-        skillR: 'dia_chan',
         canClimbLedges: true,
         heatResist: 0.5,
         art: {
@@ -120,6 +121,13 @@ export const SPECIES: SpeciesDef[] = [
     diet: 'carnivore',
     dietLabel: 'Ăn thịt',
     blurb: 'Thợ săn mạnh mẽ, nhanh nhẹn nhưng đói rất nhanh. Phải săn mồi hoặc tìm trứng để sống.',
+    learnset: [
+      { skill: 'vo_moi', req: {} },
+      { skill: 'cuong_no', req: { level: 3 } },
+      { skill: 'hoa_cau', req: { kills: 8 } },
+      { skill: 'hoi_lua', req: { form: 1 } },
+      { skill: 'vong_lua', req: { form: 2 } },
+    ],
     forms: [
       {
         name: 'Tàn Lửa',
@@ -131,8 +139,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.05,
         staminaCostMult: 1.2,
         basic: atk('Cắn', 40, 70, 0.1, 0.4, 7, 1.1, 150),
-        skillQ: 'vo_moi',
-        skillR: null,
         canClimbLedges: false,
         heatResist: 0.3,
         art: {
@@ -152,8 +158,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.1,
         staminaCostMult: 1.2,
         basic: atk('Nanh Lửa', 50, 75, 0.1, 0.4, 8, 1.15, 180),
-        skillQ: 'vo_moi',
-        skillR: 'hoi_lua',
         canClimbLedges: true,
         heatResist: 0.6,
         art: {
@@ -173,8 +177,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.15,
         staminaCostMult: 1.2,
         basic: atk('Hỏa Nha', 62, 80, 0.11, 0.4, 9, 1.2, 220),
-        skillQ: 'vo_moi_2',
-        skillR: 'vong_lua',
         canClimbLedges: true,
         heatResist: 1,
         art: {
@@ -193,7 +195,15 @@ export const SPECIES: SpeciesDef[] = [
     elementColor: '#4fb6ff',
     diet: 'omnivore',
     dietLabel: 'Ăn tạp',
-    blurb: 'Linh hoạt, chỉ số cân bằng. Ăn được cả quả, nấm, trứng lẫn thịt — mỗi thứ hiệu quả khác nhau.',
+    blurb: 'Linh hoạt, chỉ số cân bằng. Ăn được cả quả, nấm, trứng lẫn thịt — mỗi thứ hiệu quả khác nhau. Đi lại dễ dàng trong đầm lầy.',
+    swampWalker: true,
+    learnset: [
+      { skill: 'phun_nuoc', req: {} },
+      { skill: 'mang_bot', req: { level: 3 } },
+      { skill: 'bang_cham', req: { drinks: 10 } },
+      { skill: 'song_trao', req: { form: 1 } },
+      { skill: 'xoay_nuoc', req: { form: 2 } },
+    ],
     forms: [
       {
         name: 'Bọt Nhí',
@@ -205,8 +215,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.15,
         staminaCostMult: 1,
         basic: atk('Cào', 44, 110, 0.13, 0.45, 6, 1, 170),
-        skillQ: 'phun_nuoc',
-        skillR: null,
         canClimbLedges: false,
         heatResist: 0,
         art: {
@@ -226,8 +234,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.25,
         staminaCostMult: 1,
         basic: atk('Vuốt Sóng', 54, 115, 0.13, 0.45, 7, 1.05, 200),
-        skillQ: 'phun_nuoc',
-        skillR: 'mang_bot',
         canClimbLedges: true,
         heatResist: 0.2,
         art: {
@@ -247,8 +253,6 @@ export const SPECIES: SpeciesDef[] = [
         thirstMult: 1.35,
         staminaCostMult: 1,
         basic: atk('Long Trảo', 64, 120, 0.14, 0.45, 8, 1.1, 250),
-        skillQ: 'phun_nuoc_2',
-        skillR: 'song_trao',
         canClimbLedges: true,
         heatResist: 0.4,
         art: {
