@@ -91,6 +91,47 @@ body.gfx3d .swatch img {
   text-overflow: ellipsis;
 }
 
+/* World-space creature names (HTML, not Phaser Text — survives pixelArt + 3D). */
+#name-tags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  overflow: hidden;
+}
+.name-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #ffe6a0;
+  background: rgba(8, 12, 10, 0.72);
+  border: 1px solid rgba(255, 230, 160, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  will-change: transform;
+}
+.name-tag.self {
+  color: #ffe6a0;
+}
+.name-tag.ally {
+  color: #9dffb0;
+  border-color: rgba(125, 255, 154, 0.45);
+}
+.name-tag.enemy {
+  color: #ffb0a0;
+  border-color: rgba(255, 122, 106, 0.45);
+}
+body.touch .name-tag {
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
 #ui {
   position: fixed;
   inset: 0;
@@ -989,13 +1030,13 @@ body.touch #hud .skillbar {
   opacity: 0.4;
 }
 .tb.big {
-  width: 88px;
-  height: 88px;
-  right: 6px;
-  bottom: 6px;
-  font-size: 15px;
-  border-color: rgba(255, 140, 110, 0.8);
-  background: rgba(120, 40, 30, 0.55);
+  width: 96px;
+  height: 96px;
+  right: 4px;
+  bottom: 4px;
+  font-size: 16px;
+  border-color: rgba(255, 140, 110, 0.85);
+  background: rgba(120, 40, 30, 0.58);
 }
 .tb[data-b='q'] {
   right: 104px;
@@ -1034,6 +1075,32 @@ body.touch #hud .skillbar {
 .tb.toggle.on {
   background: rgba(200, 224, 90, 0.5);
   border-color: #c8e05a;
+}
+.tb[data-b='interact'].ready {
+  border-color: #ffcf4a;
+  background: rgba(180, 120, 20, 0.55);
+  box-shadow: 0 0 0 2px rgba(255, 207, 74, 0.45);
+  animation: interactPulse 1.1s ease-in-out infinite;
+}
+.tb[data-b='interact'].ready.down {
+  animation: none;
+}
+@keyframes interactPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(255, 207, 74, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(255, 207, 74, 0.55);
+  }
+}
+body.touch {
+  touch-action: none;
+  overscroll-behavior: none;
+}
+body.touch #game-root,
+body.touch #ui {
+  touch-action: none;
 }
 .ttop {
   position: absolute;
@@ -1337,11 +1404,32 @@ body.touch #hud .debug {
     height: 72px;
   }
   body.touch .tbtns {
-    transform: scale(0.74);
+    transform: scale(0.7);
   }
   body.touch .inventory .slot {
     width: 34px;
     height: 34px;
+  }
+  body.touch #hud .bottom {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  }
+  body.touch #hud .xpbars {
+    width: min(220px, 30vw);
+  }
+}
+/* Landscape phone: keep EXP/inventory clear of the right thumb cluster. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.touch #hud .bottom {
+    right: 210px;
+    left: 8px;
+    width: auto;
+    align-items: flex-start;
+  }
+  body.touch #hud .xpbars {
+    width: min(280px, 42vw);
+  }
+  body.touch #hud .prompt {
+    align-self: flex-start;
   }
 }
 @media (max-width: 600px) {

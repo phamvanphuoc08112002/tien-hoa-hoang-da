@@ -7,8 +7,10 @@ export interface TouchSkillInfo {
   locked: boolean;
 }
 
-const JOY_RADIUS = 52;
-const DEADZONE = 0.18;
+const JOY_RADIUS = 58;
+const DEADZONE = 0.16;
+/** Stick past this magnitude sprints without needing the Chạy toggle. */
+const SPRINT_MAG = 0.78;
 const SKILL_BUTTONS: TouchButton[] = ['attack', 'q', 'r', 't', 'dodge', 'rest'];
 
 function capture(el: HTMLElement, pointerId: number): void {
@@ -47,7 +49,7 @@ export class TouchControls {
         <button class="tb" data-b="dodge"><span>Né</span><i class="cd"></i></button>
         <button class="tb small" data-b="interact"><span>Dùng</span></button>
         <button class="tb small" data-b="rest"><span>Nghỉ</span><i class="cd"></i></button>
-        <button class="tb small toggle" data-b="sprint"><span>Chạy</span></button>
+        <button class="tb small toggle" data-b="sprint" title="Giữ chạy (hoặc đẩy cần hết cỡ)"><span>Chạy</span></button>
       </div>
       <div class="ttop">
         <button class="tpill" data-b="char">Nhân vật</button>
@@ -79,11 +81,41 @@ export class TouchControls {
     if (this.enabled) return;
     this.enabled = true;
     document.body.classList.add('touch');
+    // iOS Safari still double-tap-zooms even with user-scalable=no.
+    let lastEnd = 0;
+    document.addEventListener(
+      'touchend',
+      (e) => {
+        const now = performance.now();
+        if (now - lastEnd < 320 && e.cancelable) e.preventDefault();
+        lastEnd = now;
+      },
+      { passive: false },
+    );
+  }
+
+  /** Sprint toggle locked on, or stick pushed near the rim. */
+  get sprinting(): boolean {
+    return this.sprint || Math.hypot(this.mx, this.my) >= SPRINT_MAG;
   }
 
   /** Returns true once per press. */
   take(b: TouchButton): boolean {
     return this.pressed.delete(b);
+  }
+
+  /** Soft pulse on Dùng when an interaction is available. */
+  setInteractReady(v: boolean): void {
+    this.buttons.get('interact')?.classList.toggle('ready', v);
+  }
+
+  /** Short haptic for attack / hit feedback (no-op if unsupported). */
+  buzz(ms = 12): void {
+    try {
+      navigator.vibrate?.(ms);
+    } catch {
+      /* ignore */
+    }
   }
 
   /** Drops presses that were not consumed this frame (e.g. while a menu was open). */
@@ -124,12 +156,17 @@ export class TouchControls {
       e.stopPropagation();
       capture(b, e.pointerId);
       b.classList.add('down');
-      if (id === 'attack') this.attackHeld = true;
-      else if (id === 'sprint') {
+      if (id === 'attack') {
+        this.attackHeld = true;
+        this.buzz(8);
+      } else if (id === 'sprint') {
         this.sprint = !this.sprint;
         b.classList.toggle('on', this.sprint);
       } else if (id === 'fullscreen') this.toggleFullscreen();
-      else this.pressed.add(id as TouchButton);
+      else {
+        this.pressed.add(id as TouchButton);
+        if (id === 'dodge' || id === 'interact') this.buzz(6);
+      }
     });
     const up = () => {
       b.classList.remove('down');

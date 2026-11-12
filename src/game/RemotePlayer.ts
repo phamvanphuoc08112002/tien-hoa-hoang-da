@@ -58,16 +58,8 @@ export class RemotePlayer implements Creature {
     this.maxHp = this.hp;
     this.shadow = scene.add.image(x, y, 'shadow').setDisplaySize(this.radius * 2.6, this.radius * 0.9).setDepth(y - 30);
     this.sprite = scene.add.sprite(x, y, 'shadow');
-    this.nameTag = scene.add
-      .text(x, y - this.radius * 2 - 10, name || sp.element, {
-        fontFamily: 'system-ui,sans-serif',
-        fontSize: '11px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(9600);
+    // Phaser Text is nearly invisible with pixelArt; HTML NameTags are used instead.
+    this.nameTag = scene.add.text(x, y, '').setVisible(false).setActive(false);
     this.applyAppearance(speciesId, 0, 'goc');
   }
 
@@ -99,10 +91,16 @@ export class RemotePlayer implements Creature {
   }
 
   private refreshNameTag(): void {
+    /* HTML NameTags in UI handle the visible label. */
+  }
+
+  get label(): string {
     const sp = getSpecies(this.speciesId);
-    const label = this.displayName || sp.forms[this.form]?.name || sp.element;
-    this.nameTag.setText(label);
-    this.nameTag.setStyle({ fontSize: '12px', strokeThickness: 4 });
+    return this.displayName || sp.forms[this.form]?.name || sp.element;
+  }
+
+  nameAnchorY(): number {
+    return this.y - getSpecies(this.speciesId).forms[this.form].art.size * 2.15;
   }
 
   applyState(msg: PlayerStateMsg): void {
@@ -131,13 +129,11 @@ export class RemotePlayer implements Creature {
     this.sprite.setDepth(this.y);
     this.sprite.setAlpha(this.alive ? 1 : 0.35);
     this.shadow.setPosition(this.x, this.y).setDepth(this.y - 30).setAlpha(this.sprite.alpha * 0.7);
-    const head = getSpecies(this.speciesId).forms[this.form].art.size * 1.85;
-    this.nameTag.setPosition(this.x, this.y - head).setDepth(this.y + 40).setAlpha(this.sprite.alpha);
     if (this.iframes > 0) this.iframes = Math.max(0, this.iframes - dt);
   }
 
-  setAllyTint(ally: boolean): void {
-    this.nameTag.setColor(ally ? '#7dff9a' : '#ff7a6a');
+  setAllyTint(_ally: boolean): void {
+    /* HTML name tag color is set by GameScene. */
   }
 
   /** Shown in toasts when a peer joins. */

@@ -4,7 +4,7 @@ import type { Diet, FormDef, SkillDef, SpeciesDef, Stats, Weather } from '../dat
 import { ensurePlayerTexture } from '../gfx/textures';
 import type { AudioSystem } from '../systems/audio';
 import { Cooldowns } from '../systems/combat';
-import { computeStats, displayName, formOf, powerScore, speciesOf, type PlayerState } from '../systems/playerState';
+import { computeStats, formOf, powerScore, speciesOf, type PlayerState } from '../systems/playerState';
 import { equippedSkill } from '../systems/skills';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { RestController, StaminaClock, fatigueSpeedMult } from '../systems/survival';
@@ -119,16 +119,8 @@ export class Player implements PlayerInfo {
     this.shadow = scene.add.image(state.x, state.y, 'shadow');
     this.aura = scene.add.image(state.x, state.y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.sprite = scene.add.sprite(state.x, state.y, 'shadow');
-    this.nameTag = scene.add
-      .text(state.x, state.y, '', {
-        fontFamily: 'system-ui,sans-serif',
-        fontSize: '12px',
-        color: '#ffe6a0',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5, 1)
-      .setDepth(9600);
+    // Phaser Text is nearly invisible with pixelArt rendering; HTML name tags are used instead.
+    this.nameTag = scene.add.text(state.x, state.y, '').setVisible(false).setActive(false);
     this.refreshForm();
   }
 
@@ -200,7 +192,12 @@ export class Player implements PlayerInfo {
   }
 
   refreshNameTag(): void {
-    this.nameTag.setText(displayName(this.state));
+    /* HTML NameTags in UI handle the visible label. */
+  }
+
+  /** World-space anchor just above the creature head (for HTML name tags). */
+  nameAnchorY(): number {
+    return this.y - this.form.art.size * 2.15;
   }
 
   recomputeStats(): void {
@@ -510,11 +507,6 @@ export class Player implements PlayerInfo {
   syncSprite(): void {
     this.sprite.setPosition(this.x, this.y).setFlipX(this.facing < 0).setDepth(this.y + 0.5);
     this.shadow.setPosition(this.x, this.y + 1).setDepth(this.y - 30);
-    this.nameTag
-      .setPosition(this.x, this.y - this.form.art.size * 1.85)
-      .setDepth(this.y + 40)
-      .setAlpha(this.alive ? 1 : 0.35)
-      .setVisible(true);
     if (this.hurtFlash > 0.15) this.sprite.setTintFill(0xffffff);
     else if (this.iframes > 0 && this.dodgeT <= 0 && this.dashT <= 0) this.sprite.setTint(0xffb0b0).setAlpha(Math.floor(this.scene.time.now / 70) % 2 ? 0.6 : 1);
     else if (!this.evolving) {

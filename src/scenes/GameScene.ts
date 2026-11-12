@@ -307,6 +307,9 @@ export class GameScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       audio.unlock();
+      // On phones the on-screen Attack button is the only intentional attack input —
+      // canvas taps were easy to hit by accident and also triggered Safari zoom.
+      if (app.ui.touch.enabled && p.wasTouch) return;
       if ((p.wasTouch || p.leftButtonDown()) && !app.ui.modalOpen && !this.paused) {
         this.attackQueued = true;
         this.tapAim = true;
@@ -356,7 +359,7 @@ export class GameScene extends Phaser.Scene {
     const inp: PlayerInput = {
       mx,
       my,
-      sprint: !blocked && (k.SHIFT.isDown || (T.enabled && T.sprint)),
+      sprint: !blocked && (k.SHIFT.isDown || (T.enabled && T.sprinting)),
       aim,
       attack: !blocked && (this.attackQueued || T.attackHeld),
       skill,
@@ -501,6 +504,7 @@ export class GameScene extends Phaser.Scene {
     audio.setRain(this.lighting.rainIntensity);
     this.drawOverlay();
     this.updateCameraShift(dt);
+    this.syncNameTags();
     if (this.r3d) {
       this.r3d.setAmbient(this.lighting.ambient, this.lighting.night);
       this.r3d.hideFrom2D();
@@ -654,6 +658,7 @@ export class GameScene extends Phaser.Scene {
       this.lastCombatAt = this.clock.time;
       this.lastDamageCause = 'Bị người chơi khác hạ gục.';
       audio.play('hurt');
+      app.ui.touch.buzz(18);
       this.cameras.main.shake(120, 0.004);
       this.fx.text(P.x, P.y - P.radius * 2 - 6, String(Math.round(msg.damage)), '#ff6a6a', 18);
       if (P.hp <= 0) this.onPlayerDeath();
@@ -1122,6 +1127,7 @@ export class GameScene extends Phaser.Scene {
       if (e.attacker.isPlayer && !e.dot && app.multiRoom) {
         this.lastCombatAt = now;
         audio.play('hit');
+        app.ui.touch.buzz(10);
         const len = Math.hypot(e.target.kbx, e.target.kby) || 1;
         app.multiRoom.send({
           t: 'hit',
@@ -1149,6 +1155,7 @@ export class GameScene extends Phaser.Scene {
       P.stun(BALANCE.combat.hitStunSec);
       P.cancelAction();
       audio.play('hurt');
+      app.ui.touch.buzz(18);
       this.cameras.main.shake(120, 0.004);
       if (e.attacker instanceof Npc) {
         const n = e.attacker;
@@ -1172,6 +1179,7 @@ export class GameScene extends Phaser.Scene {
       this.lastTargetAt = now;
       if (!e.dot) {
         audio.play('hit');
+        app.ui.touch.buzz(10);
         const ls = P.buff && now < P.buff.until ? P.buff.lifesteal : 0;
         if (ls > 0 && P.alive) P.state.hp = Math.min(P.stats.maxHp, P.state.hp + e.damage * ls);
         if (e.tag && SKILLS[e.tag]) this.gainMastery(SKILLS[e.tag], BALANCE.combat.masteryPerHit + (e.killed ? BALANCE.combat.masteryKillBonus : 0));
@@ -1612,6 +1620,30 @@ export class GameScene extends Phaser.Scene {
     cam.setFollowOffset(0, Math.round(this.camShift));
   }
 
+  /** Projects world positions onto crisp HTML labels above each creature. */
+  private syncNameTags(): void {
+    const cam = this.cameras.main;
+    const view = cam.worldView;
+    const sx = (wx: number, wy: number) => ({
+      x: ((wx - view.x) / view.width) * cam.width,
+      y: ((wy - view.y) / view.height) * cam.height,
+    });
+    const P = this.player;
+    if (P.alive) {
+      const p = sx(P.x, P.nameAnchorY());
+      app.ui.nameTags.set('self', displayName(P.state), p.x, p.y, 'self');
+    } else app.ui.nameTags.hide('self');
+
+    const seen = new Set<string>(P.alive ? ['self'] : []);
+    for (const r of this.remotes.values()) {
+      if (!r.alive) continue;
+      seen.add(r.peerId);
+      const p = sx(r.x, r.nameAnchorY());
+      app.ui.nameTags.set(r.peerId, r.label, p.x, p.y, r.speciesId === P.speciesId ? 'ally' : 'enemy');
+    }
+    app.ui.nameTags.prune(seen);
+  }
+
   private drawOverlay(): void {
     const g = this.overlayG;
     g.clear();
@@ -1800,6 +1832,7 @@ export class GameScene extends Phaser.Scene {
     this.anims.resumeAll();
     this.tweens.killAll();
     this.time.removeAllEvents();
+    app.ui.nameTags.clear();
     app.ui.showHud(false);
     app.ui.evoProgress(false);
     app.ui.setPrompt(null);

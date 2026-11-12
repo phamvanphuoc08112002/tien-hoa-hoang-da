@@ -11,6 +11,7 @@ import type { EvoCheck } from '../systems/evolution';
 import { displayName, type PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
 import { WEATHER_NAMES } from '../systems/timeWeather';
+import { NameTags } from './NameTags';
 import { TouchControls } from './TouchControls';
 
 export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
@@ -81,13 +82,12 @@ export interface PauseCallbacks {
 const WEATHER_ICON: Record<Weather, string> = { clear: '☀', rain: '🌧', heat: '🔥' };
 
 const TOUCH_HELP: [string, string][] = [
-  ['Cần trái', 'Kéo để di chuyển'],
-  ['Đánh', 'Giữ để đánh liên tục, tự nhắm con gần nhất'],
-  ['Chạm màn hình', 'Đánh về hướng vừa chạm'],
+  ['Cần trái', 'Kéo để di chuyển — đẩy hết cỡ sẽ tự chạy'],
+  ['Đánh', 'Giữ nút Đánh để đánh liên tục, tự nhắm con gần nhất'],
   ['Q / R / T / Né', 'Chiêu thức và né tránh (nút tròn bên phải)'],
   ['Nhân vật', 'Chỉ số, chiêu thức, gắn chiêu và tiến hóa'],
-  ['Chạy', 'Bật/tắt chạy nhanh'],
-  ['Dùng', 'Ăn / uống / tương tác (hoặc chạm vào lời nhắc)'],
+  ['Chạy', 'Khóa chạy nhanh (không cần đẩy hết cần)'],
+  ['Dùng', 'Ăn / uống / tương tác — nút sáng khi có việc gần đó'],
   ['Ô túi', 'Chạm để ăn đồ mang theo'],
   ['⛶', 'Toàn màn hình'],
 ];
@@ -108,6 +108,7 @@ export class UI {
   private charEvolve: (() => void) | null = null;
   private charEquip: ((skillId: string, slot: number) => void) | null = null;
   touch!: TouchControls;
+  nameTags!: NameTags;
   onInvTap: ((slot: number) => void) | null = null;
   onPromptTap: (() => void) | null = null;
 
@@ -133,6 +134,8 @@ export class UI {
     this.hud = this.div('hidden', 'hud');
     this.root.append(this.menu, this.select, this.loading, this.hud, this.death);
     this.buildHud();
+    // After buildHud — it replaces hud.innerHTML and would wipe an earlier mount.
+    this.nameTags = new NameTags(this.hud);
   }
 
   private div(cls: string, id?: string): HTMLElement {
@@ -443,6 +446,7 @@ export class UI {
 
   showHud(v: boolean): void {
     this.hud.classList.toggle('hidden', !v);
+    if (!v) this.nameTags.clear();
   }
 
   /** Vertical band (in px, relative to the HUD) left uncovered by HUD panels around the screen's centre column. */
@@ -451,13 +455,23 @@ export class UI {
     const cx = box.left + box.width / 2;
     let top = 0;
     let bottom = box.height;
-    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bottom > :not(.prompt)').forEach((el) => {
+    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0 || r.right < cx - 40 || r.left > cx + 40) return;
       const mid = (r.top + r.bottom) / 2 - box.top;
       if (mid < box.height / 2) top = Math.max(top, r.bottom - box.top);
       else bottom = Math.min(bottom, r.top - box.top);
     });
+    // Touch clusters sit in the corners but still steal vertical room — keep the player above them.
+    if (this.touch.enabled) {
+      const tbtns = this.touch.el.querySelector('.tbtns') as HTMLElement | null;
+      const joy = this.touch.el.querySelector('.joy-zone') as HTMLElement | null;
+      for (const el of [tbtns, joy]) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.height > 0) bottom = Math.min(bottom, r.top - box.top + r.height * 0.22);
+      }
+    }
     return { top, bottom };
   }
 
@@ -527,10 +541,12 @@ export class UI {
     const p = this.els.prompt;
     if (!html) {
       p.classList.add('hidden');
+      this.touch.setInteractReady(false);
       return;
     }
     if (p.innerHTML !== html) p.innerHTML = html;
     p.classList.remove('hidden');
+    this.touch.setInteractReady(true);
   }
 
   setDebug(text: string | null): void {
