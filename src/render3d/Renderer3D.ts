@@ -158,6 +158,7 @@ export class Renderer3D {
     for (const c of this.d.wv.carcasses) hide(c.img);
     hide(this.d.player.sprite);
     hide(this.d.player.shadow);
+    // Keep player/remote name tags on the Phaser overlay so names float above heads in 3D.
     for (const n of this.d.npcs.npcs) {
       hide(n.sprite);
       hide(n.shadow);
@@ -165,7 +166,6 @@ export class Renderer3D {
     for (const r of this.d.remotes()) {
       hide(r.sprite);
       hide(r.shadow);
-      hide(r.nameTag);
     }
   }
 

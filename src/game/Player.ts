@@ -4,7 +4,7 @@ import type { Diet, FormDef, SkillDef, SpeciesDef, Stats, Weather } from '../dat
 import { ensurePlayerTexture } from '../gfx/textures';
 import type { AudioSystem } from '../systems/audio';
 import { Cooldowns } from '../systems/combat';
-import { computeStats, formOf, powerScore, speciesOf, type PlayerState } from '../systems/playerState';
+import { computeStats, displayName, formOf, powerScore, speciesOf, type PlayerState } from '../systems/playerState';
 import { equippedSkill } from '../systems/skills';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { RestController, StaminaClock, fatigueSpeedMult } from '../systems/survival';
@@ -77,6 +77,8 @@ export class Player implements PlayerInfo {
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
   aura: Phaser.GameObjects.Image;
+  /** Floating label above the creature (custom name or form name). */
+  nameTag: Phaser.GameObjects.Text;
   texKey = '';
   private curAnim = '';
 
@@ -117,6 +119,16 @@ export class Player implements PlayerInfo {
     this.shadow = scene.add.image(state.x, state.y, 'shadow');
     this.aura = scene.add.image(state.x, state.y, 'glow').setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
     this.sprite = scene.add.sprite(state.x, state.y, 'shadow');
+    this.nameTag = scene.add
+      .text(state.x, state.y, '', {
+        fontFamily: 'system-ui,sans-serif',
+        fontSize: '12px',
+        color: '#ffe6a0',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(9600);
     this.refreshForm();
   }
 
@@ -184,6 +196,11 @@ export class Player implements PlayerInfo {
     this.shadow.setDisplaySize(this.radius * 2.6, this.radius * 0.9);
     this.curAnim = '';
     this.play('idle');
+    this.refreshNameTag();
+  }
+
+  refreshNameTag(): void {
+    this.nameTag.setText(displayName(this.state));
   }
 
   recomputeStats(): void {
@@ -493,6 +510,11 @@ export class Player implements PlayerInfo {
   syncSprite(): void {
     this.sprite.setPosition(this.x, this.y).setFlipX(this.facing < 0).setDepth(this.y + 0.5);
     this.shadow.setPosition(this.x, this.y + 1).setDepth(this.y - 30);
+    this.nameTag
+      .setPosition(this.x, this.y - this.form.art.size * 1.85)
+      .setDepth(this.y + 40)
+      .setAlpha(this.alive ? 1 : 0.35)
+      .setVisible(true);
     if (this.hurtFlash > 0.15) this.sprite.setTintFill(0xffffff);
     else if (this.iframes > 0 && this.dodgeT <= 0 && this.dashT <= 0) this.sprite.setTint(0xffb0b0).setAlpha(Math.floor(this.scene.time.now / 70) % 2 ? 0.6 : 1);
     else if (!this.evolving) {
@@ -507,5 +529,6 @@ export class Player implements PlayerInfo {
     this.sprite.destroy();
     this.shadow.destroy();
     this.aura.destroy();
+    this.nameTag.destroy();
   }
 }

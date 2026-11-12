@@ -20,6 +20,8 @@ export interface MinimapDots {
   py: number;
   hostiles: { x: number; y: number }[];
   markers: { x: number; y: number }[];
+  /** Other human players (always visible, not fog-gated). */
+  peers?: { x: number; y: number; ally: boolean }[];
   discovered: Set<number>;
   portalOpen?: boolean;
 }
@@ -117,6 +119,18 @@ export class Minimap {
       g.lineTo(mx + 3, my);
       g.lineTo(mx, my + 5);
       g.lineTo(mx - 3, my);
+      g.fill();
+    }
+    for (const p of d.peers ?? []) {
+      const x = p.x / T;
+      const y = p.y / T;
+      g.fillStyle = '#ffffff';
+      g.beginPath();
+      g.arc(x, y, 3.6, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = p.ally ? '#5dff8a' : '#ffd24a';
+      g.beginPath();
+      g.arc(x, y, 2.4, 0, Math.PI * 2);
       g.fill();
     }
     const px = d.px / T;

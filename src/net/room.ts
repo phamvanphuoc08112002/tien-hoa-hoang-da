@@ -36,6 +36,10 @@ export interface WelcomeMsg {
   t: 'welcome';
   seed: string;
   hostId: string;
+  /** Host's current position so joiners spawn nearby instead of at world origin. */
+  x: number;
+  y: number;
+  meet: boolean;
 }
 
 export interface HelloMsg {
@@ -45,6 +49,8 @@ export interface HelloMsg {
   form: number;
   variant: string;
   name: string;
+  x: number;
+  y: number;
 }
 
 export interface LeaveMsg {
@@ -71,6 +77,16 @@ function peerIdFor(code: string): string {
   return PREFIX + code.toUpperCase();
 }
 
+function decode(data: unknown): NetMsg | null {
+  try {
+    if (typeof data === 'string') return JSON.parse(data) as NetMsg;
+    if (data && typeof data === 'object' && (data as { t?: string }).t) return data as NetMsg;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /** Lightweight PeerJS room: host relays messages between clients. */
 export class MultiRoom {
   readonly role: NetRole;
@@ -78,9 +94,14 @@ export class MultiRoom {
   /** Local PeerJS id (host id equals thhd-CODE; clients get a random id). */
   peerId = '';
   seed: string;
+  /** Rendezvous point for joiners (usually the host's current position). */
+  meetX = 0;
+  meetY = 0;
+  meetValid = false;
   private peer: Peer | null = null;
   private conns = new Map<string, DataConnection>();
   private handlers: NetHandler[] = [];
+  private joinHandlers: Array<(peerId: string) => void> = [];
   private ready = false;
   private closed = false;
 
@@ -115,6 +136,13 @@ export class MultiRoom {
     return room;
   }
 
+  setMeetPoint(x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.meetX = x;
+    this.meetY = y;
+    this.meetValid = true;
+  }
+
   onMessage(fn: NetHandler): () => void {
     this.handlers.push(fn);
     return () => {
@@ -122,25 +150,26 @@ export class MultiRoom {
     };
   }
 
+  /** Fires when a remote peer's data channel opens (host or client). */
+  onPeerJoin(fn: (peerId: string) => void): () => void {
+    this.joinHandlers.push(fn);
+    return () => {
+      this.joinHandlers = this.joinHandlers.filter((h) => h !== fn);
+    };
+  }
+
   /** Broadcast to every connected peer (host also relays client → others). */
   send(msg: NetMsg): void {
     if (this.closed) return;
-    const raw = JSON.stringify(msg);
     for (const c of this.conns.values()) {
-      if (c.open) c.send(raw);
+      if (c.open) {
+        try {
+          c.send(msg);
+        } catch (e) {
+          console.warn('[multi] send failed', e);
+        }
+      }
     }
-  }
-
-  /** Send to one peer id (host can reach anyone; client only reaches host who relays). */
-  sendTo(peerId: string, msg: NetMsg): void {
-    if (this.closed) return;
-    if (this.role === 'host') {
-      const c = this.conns.get(peerId);
-      if (c?.open) c.send(JSON.stringify(msg));
-      return;
-    }
-    // Client: ask host to deliver (embed target in hit.to already; host relays all non-welcome).
-    this.send(msg);
   }
 
   get connectedIds(): string[] {
@@ -154,7 +183,11 @@ export class MultiRoom {
   destroy(): void {
     this.closed = true;
     this.ready = false;
-    this.send({ t: 'leave', from: this.peer?.id ?? this.peerId });
+    try {
+      this.send({ t: 'leave', from: this.peer?.id ?? this.peerId });
+    } catch {
+      /* ignore */
+    }
     for (const c of this.conns.values()) {
       try {
         c.close();
@@ -170,6 +203,7 @@ export class MultiRoom {
     }
     this.peer = null;
     this.handlers = [];
+    this.joinHandlers = [];
   }
 
   private openPeer(fixedId?: string): Promise<void> {
@@ -198,15 +232,17 @@ export class MultiRoom {
       if (!this.peer) return reject(new Error('Peer chưa sẵn sàng.'));
       const hostId = peerIdFor(this.code);
       const conn = this.peer.connect(hostId, { reliable: true });
-      const timer = window.setTimeout(() => reject(new Error('Hết thời gian chờ chủ phòng.')), 12000);
+      const timer = window.setTimeout(() => reject(new Error('Hết thời gian chờ chủ phòng. Kiểm tra mã phòng và thử lại.')), 15000);
       conn.on('open', () => {
         window.clearTimeout(timer);
-        this.wire(conn, hostId);
-        // Wait for welcome with seed.
+        this.wire(conn, hostId, false);
         const off = this.onMessage((msg) => {
           if (msg.t === 'welcome') {
             window.clearTimeout(welcomeTimer);
             this.seed = msg.seed;
+            if (msg.meet && Number.isFinite(msg.x) && Number.isFinite(msg.y)) {
+              this.setMeetPoint(msg.x, msg.y);
+            }
             off();
             resolve();
           }
@@ -214,7 +250,7 @@ export class MultiRoom {
         const welcomeTimer = window.setTimeout(() => {
           off();
           reject(new Error('Chủ phòng không phản hồi.'));
-        }, 8000);
+        }, 10000);
       });
       conn.on('error', (e) => {
         window.clearTimeout(timer);
@@ -229,29 +265,58 @@ export class MultiRoom {
       return;
     }
     conn.on('open', () => {
-      this.wire(conn, conn.peer);
-      conn.send(JSON.stringify({ t: 'welcome', seed: this.seed, hostId: this.peerId } satisfies WelcomeMsg));
+      this.wire(conn, conn.peer, true);
+      const welcome: WelcomeMsg = {
+        t: 'welcome',
+        seed: this.seed,
+        hostId: this.peerId,
+        x: this.meetX,
+        y: this.meetY,
+        meet: this.meetValid,
+      };
+      try {
+        conn.send(welcome);
+      } catch (e) {
+        console.warn('[multi] welcome failed', e);
+      }
     });
   }
 
-  private wire(conn: DataConnection, id: string): void {
+  private wire(conn: DataConnection, id: string, announceJoin: boolean): void {
     this.conns.set(id, conn);
-    conn.on('data', (data) => {
-      let msg: NetMsg;
-      try {
-        msg = typeof data === 'string' ? JSON.parse(data) : (data as NetMsg);
-      } catch {
-        return;
+    if (announceJoin) {
+      for (const h of this.joinHandlers) {
+        try {
+          h(id);
+        } catch (e) {
+          console.error(e);
+        }
       }
+    }
+    // Client side: also notify when the host link is ready.
+    if (!announceJoin && this.role === 'client') {
+      for (const h of this.joinHandlers) {
+        try {
+          h(id);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    conn.on('data', (data) => {
+      const msg = decode(data);
+      if (!msg) return;
       this.emit(msg, id);
       // Host relays to everyone else (except welcome).
       if (this.role === 'host' && msg.t !== 'welcome') {
-        const raw = JSON.stringify(msg);
         for (const [pid, c] of this.conns) {
           if (pid === id || !c.open) continue;
-          // Targeted hit: only forward to victim (and still emit locally above for host-as-victim).
           if (msg.t === 'hit' && msg.to !== pid) continue;
-          c.send(raw);
+          try {
+            c.send(msg);
+          } catch (e) {
+            console.warn('[multi] relay failed', e);
+          }
         }
       }
     });
@@ -259,8 +324,14 @@ export class MultiRoom {
       this.conns.delete(id);
       this.emit({ t: 'peerGone', from: id }, id);
       if (this.role === 'host') {
-        const raw = JSON.stringify({ t: 'peerGone', from: id } satisfies PeerGoneMsg);
-        for (const c of this.conns.values()) if (c.open) c.send(raw);
+        for (const c of this.conns.values()) {
+          if (!c.open) continue;
+          try {
+            c.send({ t: 'peerGone', from: id } satisfies PeerGoneMsg);
+          } catch {
+            /* ignore */
+          }
+        }
       }
     });
   }

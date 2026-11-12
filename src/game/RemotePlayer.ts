@@ -102,6 +102,7 @@ export class RemotePlayer implements Creature {
     const sp = getSpecies(this.speciesId);
     const label = this.displayName || sp.forms[this.form]?.name || sp.element;
     this.nameTag.setText(label);
+    this.nameTag.setStyle({ fontSize: '12px', strokeThickness: 4 });
   }
 
   applyState(msg: PlayerStateMsg): void {
@@ -130,7 +131,8 @@ export class RemotePlayer implements Creature {
     this.sprite.setDepth(this.y);
     this.sprite.setAlpha(this.alive ? 1 : 0.35);
     this.shadow.setPosition(this.x, this.y).setDepth(this.y - 30).setAlpha(this.sprite.alpha * 0.7);
-    this.nameTag.setPosition(this.x, this.y - this.radius * 2 - 8).setAlpha(this.sprite.alpha);
+    const head = getSpecies(this.speciesId).forms[this.form].art.size * 1.85;
+    this.nameTag.setPosition(this.x, this.y - head).setDepth(this.y + 40).setAlpha(this.sprite.alpha);
     if (this.iframes > 0) this.iframes = Math.max(0, this.iframes - dt);
   }
 

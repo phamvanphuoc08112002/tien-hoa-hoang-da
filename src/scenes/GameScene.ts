@@ -102,6 +102,7 @@ export class GameScene extends Phaser.Scene {
   private bloodSurvivedNight = -1;
   private remotes = new Map<string, RemotePlayer>();
   private multiOff: (() => void) | null = null;
+  private multiJoinOff: (() => void) | null = null;
   private multiSendT = 0;
   private multiMode = false;
 
@@ -143,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     this.bloodSurvivedNight = -1;
     this.remotes.clear();
     this.multiOff = null;
+    this.multiJoinOff = null;
     this.multiSendT = 0;
     this.multiMode = false;
   }
@@ -266,15 +268,23 @@ export class GameScene extends Phaser.Scene {
       app.ui.toast('Mất kết nối phòng mạng — chơi đơn.', 'bad');
     }
     if (this.multiMode) {
-      this.setupMultiplayer();
       const room = app.multiRoom!;
-      // Spread spawns so players do not stack on the same tile.
-      const h = Math.imul(room.peerId.length + 13, 2654435761) >>> 0;
+      // Guests spawn at the host's last known position so they can actually meet.
+      const h = Math.imul(room.peerId.split('').reduce((a, c) => a + c.charCodeAt(0), 0) + 13, 2654435761) >>> 0;
       const ang = (h / 4294967296) * Math.PI * 2;
-      this.player.x += Math.cos(ang) * 48;
-      this.player.y += Math.sin(ang) * 48;
+      const ox = Math.cos(ang) * 56;
+      const oy = Math.sin(ang) * 56;
+      if (room.meetValid) {
+        this.player.x = room.meetX + ox;
+        this.player.y = room.meetY + oy;
+      } else {
+        this.player.x += ox;
+        this.player.y += oy;
+      }
+      room.setMeetPoint(this.player.x, this.player.y);
+      this.setupMultiplayer();
       app.ui.setMultiBanner(`Phòng ${room.code} · ${room.role === 'host' ? 'Chủ phòng' : 'Khách'} · cùng loài = đồng minh`);
-      app.ui.toast(`Chơi mạng — mã phòng ${room.code}. Cùng loài hỗ trợ, khác loài có thể đánh.`, 'evo');
+      app.ui.toast(`Chơi mạng — mã phòng ${room.code}. Người chơi khác hiện chấm vàng trên bản đồ.`, 'evo');
     } else app.ui.setMultiBanner(null);
 
     if (!save) {
@@ -592,24 +602,37 @@ export class GameScene extends Phaser.Scene {
     const room = app.multiRoom;
     if (!room) return;
     this.multiOff = room.onMessage((msg, from) => this.onNetMsg(msg, from));
+    this.multiJoinOff = room.onPeerJoin(() => {
+      // A peer just connected (or we just linked to host) — shout our pose immediately.
+      this.broadcastState(true);
+    });
     // Announce ourselves so peers already in-game spawn our avatar.
     this.broadcastState(true);
+    window.setTimeout(() => this.broadcastState(true), 400);
+    window.setTimeout(() => this.broadcastState(true), 1200);
   }
 
-  private onNetMsg(msg: NetMsg, from: string): void {
+  private onNetMsg(msg: NetMsg, _from: string): void {
     if (!this.started || !this.multiMode) return;
-    const id = msg.t === 'state' || msg.t === 'hello' || msg.t === 'leave' || msg.t === 'peerGone' ? msg.from : from;
-    if (msg.t === 'welcome') return;
+    if (msg.t === 'welcome') {
+      // Late welcome updates (shouldn't happen) — keep meet point fresh for travel.
+      if (msg.meet) app.multiRoom?.setMeetPoint(msg.x, msg.y);
+      return;
+    }
     if (msg.t === 'leave' || msg.t === 'peerGone') {
       this.removeRemote(msg.from);
       return;
     }
     if (msg.t === 'hello') {
-      this.ensureRemote(msg.from, msg.speciesId, this.player.x + 40, this.player.y, msg.name);
+      if (msg.from === app.multiRoom?.peerId) return;
+      const x = Number.isFinite(msg.x) ? msg.x : this.player.x + 40;
+      const y = Number.isFinite(msg.y) ? msg.y : this.player.y;
+      this.ensureRemote(msg.from, msg.speciesId, x, y, msg.name);
       return;
     }
     if (msg.t === 'state') {
       if (msg.from === app.multiRoom?.peerId) return;
+      if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
       const r = this.ensureRemote(msg.from, msg.speciesId, msg.x, msg.y, msg.name);
       r.applyState(msg);
       r.setAllyTint(msg.speciesId === this.player.speciesId);
@@ -637,7 +660,6 @@ export class GameScene extends Phaser.Scene {
       else this.broadcastState(true);
       return;
     }
-    void id;
   }
 
   private ensureRemote(peerId: string, speciesId: string, x: number, y: number, name = ''): RemotePlayer {
@@ -646,7 +668,15 @@ export class GameScene extends Phaser.Scene {
       r = new RemotePlayer(this, peerId, speciesId, x, y, name);
       r.setAllyTint(speciesId === this.player.speciesId);
       this.remotes.set(peerId, r);
-      app.ui.toast(`${r.joinLabel} đã vào vùng của bạn.`, speciesId === this.player.speciesId ? 'good' : 'bad');
+      const dist = Math.hypot(x - this.player.x, y - this.player.y);
+      const meters = Math.round(dist / 32);
+      app.ui.toast(
+        meters <= 8
+          ? `${r.joinLabel} ở ngay gần bạn!`
+          : `${r.joinLabel} đã vào — cách ~${meters} ô (chấm vàng trên bản đồ).`,
+        speciesId === this.player.speciesId ? 'good' : 'bad',
+      );
+      this.broadcastState(true);
     } else if (name) r.setDisplayName(name);
     return r;
   }
@@ -678,6 +708,8 @@ export class GameScene extends Phaser.Scene {
       alive: P.alive,
       name: displayName(P.state),
     };
+    // Host publishes a rendezvous point so late joiners spawn nearby.
+    room.setMeetPoint(P.x, P.y);
     room.send(msg);
     if (force) {
       room.send({
@@ -687,6 +719,8 @@ export class GameScene extends Phaser.Scene {
         form: P.state.form,
         variant: P.state.colorVariant,
         name: displayName(P.state),
+        x: P.x,
+        y: P.y,
       });
     }
   }
@@ -1613,7 +1647,18 @@ export class GameScene extends Phaser.Scene {
       .creaturesNear(P.x, P.y, Math.min(700, vision + 100))
       .filter((n) => n.alive && (n.def.temperament === 'predator' || n.def.temperament === 'apex' || n.def.temperament === 'territorial'))
       .map((n) => ({ x: n.x, y: n.y }));
-    this.minimap.draw({ px: P.x, py: P.y, hostiles, markers: P.state.markers, discovered: this.discovered, portalOpen: this.guardianDown });
+    const peers = [...this.remotes.values()]
+      .filter((r) => r.alive)
+      .map((r) => ({ x: r.x, y: r.y, ally: r.speciesId === P.speciesId }));
+    this.minimap.draw({
+      px: P.x,
+      py: P.y,
+      hostiles,
+      markers: P.state.markers,
+      peers,
+      discovered: this.discovered,
+      portalOpen: this.guardianDown,
+    });
   }
 
   private hudData(): HudData {
@@ -1735,6 +1780,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.multiOff?.();
     this.multiOff = null;
+    this.multiJoinOff?.();
+    this.multiJoinOff = null;
     for (const r of this.remotes.values()) r.destroy();
     this.remotes.clear();
     app.ui.setMultiBanner(null);
