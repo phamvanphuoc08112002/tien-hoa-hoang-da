@@ -340,6 +340,22 @@ button.danger {
   width: 60px;
   image-rendering: pixelated;
 }
+/* Sticky bottom bar so name + seed stay visible while scrolling species cards. */
+#select .select-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 960px;
+  margin-top: 4px;
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, transparent, rgba(12, 18, 14, 0.92) 28%, rgba(12, 18, 14, 0.96));
+  border-top: 1px solid rgba(90, 105, 130, 0.35);
+}
 .name-row,
 .seed-row {
   display: flex;
@@ -348,9 +364,6 @@ button.danger {
   gap: 8px;
   align-items: center;
   max-width: 100%;
-}
-.name-row {
-  margin: 0 0 12px;
 }
 .name-row input,
 .seed-row input {
@@ -366,6 +379,7 @@ button.danger {
 }
 .name-row input {
   width: 220px;
+  border-color: #7a9a4a;
 }
 
 /* ---------- HUD ---------- */

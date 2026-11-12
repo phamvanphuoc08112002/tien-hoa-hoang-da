@@ -340,15 +340,17 @@ export class UI {
     }).join('');
     this.select.innerHTML = `
       <h2>Chọn sinh vật của bạn</h2>
-      <div class="name-row">
-        <span>Tên nhân vật:</span>
-        <input maxlength="16" value="${esc(storedName)}" placeholder="Để trống = tên dạng" data-name autocomplete="nickname">
-      </div>
       <div class="cards">${cards}</div>
-      <div class="seed-row">
-        <span>Seed bản đồ:</span><input maxlength="24" value="${esc(defaultSeed)}" data-seed>
-        <button data-a="back">Quay lại</button>
-        <button class="primary" data-a="start">Bắt đầu</button>
+      <div class="select-bar">
+        <div class="name-row">
+          <span>Tên của bạn:</span>
+          <input maxlength="16" value="${esc(storedName)}" placeholder="VD: Lá Nhí" data-name autocomplete="nickname">
+        </div>
+        <div class="seed-row">
+          <span>Seed bản đồ:</span><input maxlength="24" value="${esc(defaultSeed)}" data-seed>
+          <button data-a="back">Quay lại</button>
+          <button class="primary" data-a="start">Bắt đầu</button>
+        </div>
       </div>`;
     const mark = () => this.select.querySelectorAll('.card').forEach((c) => c.classList.toggle('selected', (c as HTMLElement).dataset.id === chosen));
     mark();
