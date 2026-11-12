@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { applyVariant } from '../data/shop';
 import type { Npc, NpcManager } from '../game/Npcs';
 import type { Player } from '../game/Player';
+import type { RemotePlayer } from '../game/RemotePlayer';
 import type { WorldView } from '../game/WorldView';
+import { getSpecies } from '../data/species';
 import type { WorldData, WorldObject } from '../world/tiles';
 import { ChibiModel, type ChibiAnim } from './chibi';
 import { modelFor } from './models';
@@ -16,6 +18,7 @@ export interface View3DDeps {
   wv: WorldView;
   player: Player;
   npcs: NpcManager;
+  remotes: () => Iterable<RemotePlayer>;
 }
 
 interface ObjEntry {
@@ -91,6 +94,7 @@ export class Renderer3D {
   private groups = new Map<string, InstGroup>();
   private capacity = new Map<string, number>();
   private npcViews = new Map<Npc, NpcView>();
+  private remoteViews = new Map<RemotePlayer, NpcView>();
   private shadowGeo = new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2);
   private shadowMat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.26, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private player: { model: ChibiModel; key: string; shadow: THREE.Mesh } | null = null;
@@ -157,6 +161,11 @@ export class Renderer3D {
     for (const n of this.d.npcs.npcs) {
       hide(n.sprite);
       hide(n.shadow);
+    }
+    for (const r of this.d.remotes()) {
+      hide(r.sprite);
+      hide(r.shadow);
+      hide(r.nameTag);
     }
   }
 
@@ -314,6 +323,47 @@ export class Renderer3D {
     }
   }
 
+  private syncRemotes(dt: number, t: number): void {
+    const list = [...this.d.remotes()];
+    const alive = new Set(list);
+    for (const [r, v] of this.remoteViews) {
+      if (alive.has(r) && r.sprite.active) continue;
+      this.disposeNpcView(v);
+      this.remoteViews.delete(r);
+    }
+    for (const r of list) {
+      if (!r.sprite.active) continue;
+      let v = this.remoteViews.get(r);
+      const key = r.texKey;
+      if (!v || v.key !== key) {
+        if (v) this.disposeNpcView(v);
+        const art = getSpecies(r.speciesId).forms[r.form].art;
+        const model = new ChibiModel(art, applyVariant(art.pal, r.variant));
+        this.scene3.add(model.root);
+        v = { model, shadow: this.blob(r.radius), key, heading: headingToRotY(r.facing, 0), lastX: r.x, lastY: r.y };
+        this.remoteViews.set(r, v);
+      }
+      const { model, shadow } = v;
+      model.root.visible = r.alive;
+      const h = this.hf.standAt(r.x, r.y);
+      model.root.position.set(r.x, h, toZ(r.y, h));
+      const dx = r.x - v.lastX;
+      const dy = r.y - v.lastY;
+      v.lastX = r.x;
+      v.lastY = r.y;
+      let want = Math.hypot(dx, dy) > 0.4 ? headingToRotY(dx, dy) : headingToRotY(r.facing, 0);
+      let diff = want - v.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      v.heading += diff * Math.min(1, dt * 12);
+      model.root.rotation.y = v.heading;
+      const anim = (ANIMS.has(r.anim) ? r.anim : 'idle') as ChibiAnim;
+      model.update(anim, dt, t, 1);
+      model.setTint(null, false, r.sprite.alpha);
+      this.placeBlob(shadow, r.x, r.y, h, r.radius, r.sprite.alpha);
+    }
+  }
+
   private syncPlayer(dt: number, t: number): void {
     const P = this.d.player;
     const key = P.texKey;
@@ -424,6 +474,7 @@ export class Renderer3D {
     this.syncLights();
     this.syncObjects(t);
     this.syncNpcs(dt, t);
+    this.syncRemotes(dt, t);
     this.syncPlayer(dt, t);
     this.renderer.render(this.scene3, this.camera);
   }
@@ -432,6 +483,8 @@ export class Renderer3D {
     this.player?.model.dispose();
     for (const v of this.npcViews.values()) this.disposeNpcView(v);
     this.npcViews.clear();
+    for (const v of this.remoteViews.values()) this.disposeNpcView(v);
+    this.remoteViews.clear();
     this.scene3.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.geometry && !(o instanceof THREE.InstancedMesh)) m.geometry.dispose();

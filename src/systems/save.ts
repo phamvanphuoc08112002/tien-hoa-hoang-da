@@ -5,6 +5,7 @@ import { SPECIES } from '../data/species';
 import { COLOR_VARIANTS } from '../data/shop';
 import type { Weather } from '../data/types';
 import type { PlayerState } from './playerState';
+import { sanitizePlayerName } from './playerState';
 import { ensureSkillState } from './skills';
 
 export const SAVE_KEY = 'tien-hoa-hoang-da.save';
@@ -76,6 +77,7 @@ export function validateSave(d: any): string | null {
   const p = d.player;
   if (!p || typeof p !== 'object') return 'Thiếu dữ liệu nhân vật.';
   if (!SPECIES.some((s) => s.id === p.speciesId)) return 'Loài sinh vật không xác định.';
+  if (p.name !== undefined && p.name !== null && !isStr(p.name)) return 'Tên nhân vật không hợp lệ.';
   if (!isNum(p.form) || p.form < 0 || p.form > 2 || Math.floor(p.form) !== p.form) return 'Dạng tiến hóa không hợp lệ.';
   for (const k of ['level', 'exp', 'maturity', 'hp', 'hunger', 'thirst', 'stamina', 'fatigue', 'coins', 'x', 'y', 'slots', 'satiation']) {
     if (!isNum(p[k])) return `Chỉ số "${k}" bị hỏng.`;
@@ -107,6 +109,7 @@ function sanitize(d: SaveData): SaveData {
   p.coins = Math.max(0, Math.floor(p.coins));
   p.slots = c(Math.floor(p.slots), 1, BALANCE.inventory.maxSlots);
   if (!p.unlockedColors.includes(p.colorVariant)) p.colorVariant = 'goc';
+  p.name = isStr(p.name) ? sanitizePlayerName(p.name) : '';
   for (const k of ['kills', 'foodEaten', 'drinks', 'daysSurvived', 'timeAlive', 'evolutions', 'elites', 'bosses', 'stones', 'bloodMoons'] as const) {
     if (!isNum(p.stats[k])) p.stats[k] = 0;
   }

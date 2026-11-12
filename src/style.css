@@ -72,6 +72,25 @@ body.gfx3d .swatch img {
   opacity: 0.7;
 }
 
+#multi-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  pointer-events: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(12, 18, 16, 0.78);
+  border: 1px solid #3b4658;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  max-width: min(92vw, 420px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 #ui {
   position: fixed;
   inset: 0;
@@ -321,6 +340,7 @@ button.danger {
   width: 60px;
   image-rendering: pixelated;
 }
+.name-row,
 .seed-row {
   display: flex;
   flex-wrap: wrap;
@@ -329,6 +349,10 @@ button.danger {
   align-items: center;
   max-width: 100%;
 }
+.name-row {
+  margin: 0 0 12px;
+}
+.name-row input,
 .seed-row input {
   font-family: var(--font);
   font-size: 15px;
@@ -339,6 +363,9 @@ button.danger {
   color: var(--text);
   width: 170px;
   max-width: 100%;
+}
+.name-row input {
+  width: 220px;
 }
 
 /* ---------- HUD ---------- */

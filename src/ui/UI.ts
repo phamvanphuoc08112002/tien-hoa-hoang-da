@@ -8,7 +8,7 @@ import { SPECIES, getSpecies } from '../data/species';
 import type { Weather } from '../data/types';
 import { foodIconUrl, speciesPreviewUrl } from '../gfx/textures';
 import type { EvoCheck } from '../systems/evolution';
-import type { PlayerState } from '../systems/playerState';
+import { displayName, type PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
 import { WEATHER_NAMES } from '../systems/timeWeather';
 import { TouchControls } from './TouchControls';
@@ -26,6 +26,8 @@ export interface SkillSlotData {
 export interface HudData {
   speciesName: string;
   formName: string;
+  /** Custom name or form name shown in the vitals header. */
+  playerName: string;
   hp: number;
   maxHp: number;
   hunger: number;
@@ -158,12 +160,14 @@ export class UI {
     settings: Settings;
     onContinue: () => void;
     onNew: () => void;
+    onMulti: () => void;
     onDeleteSave: () => void;
     onSettings: (s: Settings) => void;
   }): void {
     this.hideScreens();
     this.showHud(false);
     this.closeOverlay();
+    this.setMultiBanner(null);
     const imgs = SPECIES.map((s) => `<img src="${speciesPreviewUrl(s.id, 0, false)}" alt="${esc(s.forms[0].name)}">`).join('');
     this.menu.innerHTML = `
       <div class="creatures">${imgs}</div>
@@ -173,6 +177,7 @@ export class UI {
       <div class="buttons">
         <button class="primary" data-a="continue" ${o.saveInfo ? '' : 'disabled'}>Tiếp tục</button>
         <button data-a="new">Chơi mới</button>
+        <button data-a="multi">Chơi mạng</button>
         <button data-a="settings">Cài đặt</button>
         ${o.saveInfo || o.error ? '<button class="danger" data-a="delete">Xóa bản lưu</button>' : ''}
       </div>
@@ -180,9 +185,81 @@ export class UI {
       <div class="save-info">Âm thanh bắt đầu sau lần bấm đầu tiên.</div>`;
     this.menu.querySelector('[data-a=continue]')?.addEventListener('click', o.onContinue);
     this.menu.querySelector('[data-a=new]')?.addEventListener('click', o.onNew);
+    this.menu.querySelector('[data-a=multi]')?.addEventListener('click', o.onMulti);
     this.menu.querySelector('[data-a=delete]')?.addEventListener('click', o.onDeleteSave);
     this.menu.querySelector('[data-a=settings]')?.addEventListener('click', () => this.settingsDialog(o.settings, o.onSettings));
     this.menu.classList.remove('hidden');
+  }
+
+  /** Create / join multiplayer room dialog. */
+  multiplayerDialog(): Promise<{ action: 'create' } | { action: 'join'; code: string } | null> {
+    return new Promise((resolve) => {
+      const m = this.div('modal');
+      m.innerHTML = `<div class="panel">
+        <h2>Chơi mạng</h2>
+        <p style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45">
+          Cùng loài (Mộc / Hỏa / Thủy) sẽ hỗ trợ nhau khi đứng gần.<br>
+          Khác loài có thể tấn công lẫn nhau. Thế giới thú hoang mỗi máy tự chạy.
+        </p>
+        <div class="row" style="flex-wrap:wrap;gap:8px">
+          <button class="primary" data-a="create">Tạo phòng</button>
+          <button data-a="join">Vào phòng</button>
+          <button data-a="cancel">Hủy</button>
+        </div>
+        <div class="seed-row" style="margin-top:12px;display:none" data-joinrow>
+          <span>Mã phòng:</span>
+          <input maxlength="8" placeholder="VD: AB3K7P" data-code style="text-transform:uppercase;letter-spacing:0.08em">
+          <button class="primary" data-a="go">Vào</button>
+        </div>
+      </div>`;
+      this.dialogOpen = true;
+      const done = (v: { action: 'create' } | { action: 'join'; code: string } | null) => {
+        m.remove();
+        this.dialogOpen = false;
+        resolve(v);
+      };
+      m.querySelector('[data-a=create]')?.addEventListener('click', () => done({ action: 'create' }));
+      m.querySelector('[data-a=cancel]')?.addEventListener('click', () => done(null));
+      m.querySelector('[data-a=join]')?.addEventListener('click', () => {
+        const row = m.querySelector('[data-joinrow]') as HTMLElement;
+        row.style.display = 'flex';
+        (m.querySelector('[data-code]') as HTMLInputElement).focus();
+      });
+      m.querySelector('[data-a=go]')?.addEventListener('click', () => {
+        const code = ((m.querySelector('[data-code]') as HTMLInputElement).value || '').trim();
+        if (!code) return;
+        done({ action: 'join', code });
+      });
+      this.root.append(m);
+    });
+  }
+
+  /** Shows the room code while connecting / waiting. */
+  multiStatus(title: string, bodyHtml: string): HTMLElement {
+    const m = this.div('modal');
+    m.innerHTML = `<div class="panel"><h2>${esc(title)}</h2><div data-body>${bodyHtml}</div><div class="row"><button data-a="cancel">Hủy</button></div></div>`;
+    this.dialogOpen = true;
+    this.root.append(m);
+    return m;
+  }
+
+  closeMultiStatus(el: HTMLElement | null): void {
+    el?.remove();
+    this.dialogOpen = false;
+  }
+
+  setMultiBanner(text: string | null): void {
+    let el = document.getElementById('multi-banner');
+    if (!text) {
+      el?.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'multi-banner';
+      this.hud.append(el);
+    }
+    el.textContent = text;
   }
 
   private settingsHtml(s: Settings): string {
@@ -221,9 +298,16 @@ export class UI {
     this.root.append(m);
   }
 
-  showSelect(defaultSeed: string, onPick: (speciesId: string, seed: string) => void, onBack: () => void): void {
+  showSelect(defaultSeed: string, onPick: (speciesId: string, seed: string, name: string) => void, onBack: () => void): void {
     this.hideScreens();
     let chosen = SPECIES[0].id;
+    const storedName = (() => {
+      try {
+        return localStorage.getItem('thhd.playerName') || '';
+      } catch {
+        return '';
+      }
+    })();
     const statMax = { maxHp: 120, speed: 180, power: 14, defense: 12, stamina: 125 };
     const stat = (label: string, v: number, max: number, color: string) =>
       `<div class="statbar"><span>${label}</span><div class="bar"><div style="width:${Math.min(100, (v / max) * 100)}%;background:${color}"></div></div><span>${v}</span></div>`;
@@ -256,6 +340,10 @@ export class UI {
     }).join('');
     this.select.innerHTML = `
       <h2>Chọn sinh vật của bạn</h2>
+      <div class="name-row">
+        <span>Tên nhân vật:</span>
+        <input maxlength="16" value="${esc(storedName)}" placeholder="Để trống = tên dạng" data-name autocomplete="nickname">
+      </div>
       <div class="cards">${cards}</div>
       <div class="seed-row">
         <span>Seed bản đồ:</span><input maxlength="24" value="${esc(defaultSeed)}" data-seed>
@@ -269,9 +357,16 @@ export class UI {
       mark();
     }));
     const seedInput = this.select.querySelector('[data-seed]') as HTMLInputElement;
+    const nameInput = this.select.querySelector('[data-name]') as HTMLInputElement;
     const start = () => {
       const seed = (seedInput.value || defaultSeed).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || defaultSeed;
-      onPick(chosen, seed);
+      const name = (nameInput.value || '').trim();
+      try {
+        localStorage.setItem('thhd.playerName', name);
+      } catch {
+        /* ignore */
+      }
+      onPick(chosen, seed, name);
     };
     this.select.querySelectorAll<HTMLElement>('[data-pick]').forEach((b) => b.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -374,7 +469,7 @@ export class UI {
 
   updateHud(d: HudData): void {
     const E = this.els;
-    E.name.textContent = d.formName;
+    E.name.textContent = d.playerName === d.formName ? d.formName : `${d.playerName} · ${d.formName}`;
     E.lv.textContent = `Cấp ${d.level}`;
     const bar = (k: string, v: number, max: number, label: string, warn: boolean) => {
       E[k].style.width = `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
@@ -493,7 +588,7 @@ export class UI {
       .map((ff, i) => `<div class="${i === s.form ? 'current' : ''}"><img src="${speciesPreviewUrl(sp.id, i, i > s.form, i === s.form ? s.colorVariant : 'goc')}" alt="">${i <= s.form ? esc(ff.name) : '???'}</div>`)
       .join('<div>➜</div>');
     const html = `
-      <h2>${esc(f.name)} <small style="font-size:14px;color:#a9b0bd">— ${esc(f.title)} • Hệ ${esc(sp.element)} • ${esc(sp.dietLabel)}</small></h2>
+      <h2>${esc(displayName(s))} <small style="font-size:14px;color:#a9b0bd">— ${esc(f.name)} · ${esc(f.title)} • Hệ ${esc(sp.element)} • ${esc(sp.dietLabel)}</small></h2>
       <div class="char-grid">
         <div><img class="big" src="${speciesPreviewUrl(sp.id, s.form, false, s.colorVariant)}" alt=""><p style="font-size:12px;color:#a9b0bd">${esc(f.desc)}</p></div>
         <div>

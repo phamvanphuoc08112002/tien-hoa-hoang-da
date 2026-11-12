@@ -18,8 +18,29 @@ export interface PlayerStats {
 
 export const SKILL_SLOTS = 3;
 
+/** Max length for the player-chosen display name. */
+export const PLAYER_NAME_MAX = 16;
+
+/** Trims, collapses spaces, and caps length. Empty string means "use form name". */
+export function sanitizePlayerName(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, PLAYER_NAME_MAX);
+}
+
+/** HUD / toast label: custom name, or the current form name as fallback. */
+export function displayName(s: PlayerState): string {
+  const n = sanitizePlayerName(s.name || '');
+  return n || formOf(s).name;
+}
+
 export interface PlayerState {
   speciesId: string;
+  /** Optional custom name chosen at run start. */
+  name: string;
   form: number;
   level: number;
   exp: number;
@@ -59,6 +80,7 @@ export function createPlayerState(speciesId: string, x: number, y: number): Play
   const base = sp.forms[0].stats;
   return {
     speciesId,
+    name: '',
     form: 0,
     level: 1,
     exp: 0,

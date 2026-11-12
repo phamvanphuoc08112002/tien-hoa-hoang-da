@@ -13,7 +13,7 @@ import type { SkillDef } from '../data/types';
 import { audio } from '../systems/audio';
 import { addToInventory, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
-import { SKILL_SLOTS, computeStats, createPlayerState, formOf, type PlayerState } from '../systems/playerState';
+import { SKILL_SLOTS, computeStats, createPlayerState, displayName, formOf, sanitizePlayerName, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
 import { SLOT_KEYS, addMastery, equipSkill, evolvePending, slotUnlocked, syncLearned, type SkillEvolution } from '../systems/skills';
 import { STATUS_INFO } from '../systems/status';
@@ -32,9 +32,15 @@ import { Effects, FX_DEPTH } from '../game/Effects';
 import { Lighting } from '../game/Lighting';
 import { AI_STATE_NAMES, Npc, NpcManager } from '../game/Npcs';
 import { Player, type PlayerInput } from '../game/Player';
+import { RemotePlayer } from '../game/RemotePlayer';
 import type { Carcass, ResourceNode } from '../game/WorldView';
 import { WorldView } from '../game/WorldView';
+import type { NetMsg, PlayerStateMsg } from '../net/room';
 import { Renderer3D, webglAvailable } from '../render3d/Renderer3D';
+
+const SUPPORT_RANGE = 120;
+const SUPPORT_HPS = 5;
+const MULTI_SEND_HZ = 10;
 
 const T = BALANCE.tile;
 
@@ -94,6 +100,10 @@ export class GameScene extends Phaser.Scene {
   private bloodWarnedNight = -1;
   private bloodActive = false;
   private bloodSurvivedNight = -1;
+  private remotes = new Map<string, RemotePlayer>();
+  private multiOff: (() => void) | null = null;
+  private multiSendT = 0;
+  private multiMode = false;
 
   private onResize = (size: Phaser.Structs.Size) => {
     this.cameras.main.setSize(size.width, size.height);
@@ -131,6 +141,10 @@ export class GameScene extends Phaser.Scene {
     this.bloodWarnedNight = -1;
     this.bloodActive = false;
     this.bloodSurvivedNight = -1;
+    this.remotes.clear();
+    this.multiOff = null;
+    this.multiSendT = 0;
+    this.multiMode = false;
   }
 
   /** Night counter: the night that starts on day N is night N. */
@@ -155,6 +169,8 @@ export class GameScene extends Phaser.Scene {
     const sx = this.world.spawn.tx * T + T / 2;
     const sy = this.world.spawn.ty * T + T / 2;
     const state: PlayerState = save ? save.player : createPlayerState(data.speciesId as string, sx, sy);
+    if (!save && data.playerName) state.name = sanitizePlayerName(data.playerName);
+    if (!state.name) state.name = '';
     if (travel) {
       state.x = sx;
       state.y = sy;
@@ -205,7 +221,14 @@ export class GameScene extends Phaser.Scene {
     this.r3d = null;
     if (app.settings.graphics3d && webglAvailable()) {
       try {
-        this.r3d = new Renderer3D({ scene: this, world: this.world, wv: this.wv, player: this.player, npcs: this.npcs });
+        this.r3d = new Renderer3D({
+          scene: this,
+          world: this.world,
+          wv: this.wv,
+          player: this.player,
+          npcs: this.npcs,
+          remotes: () => this.remotes.values(),
+        });
       } catch (e) {
         console.error('3D view unavailable, using 2D', e);
         this.r3d = null;
@@ -238,9 +261,25 @@ export class GameScene extends Phaser.Scene {
     this.started = true;
     if (DEBUG_ENABLED) (window as unknown as { __scene?: GameScene }).__scene = this;
     const realm = realmOf(this.realm);
+    this.multiMode = !!(data.multi && app.multiRoom?.isOpen);
+    if (data.multi && !app.multiRoom?.isOpen) {
+      app.ui.toast('Mất kết nối phòng mạng — chơi đơn.', 'bad');
+    }
+    if (this.multiMode) {
+      this.setupMultiplayer();
+      const room = app.multiRoom!;
+      // Spread spawns so players do not stack on the same tile.
+      const h = Math.imul(room.peerId.length + 13, 2654435761) >>> 0;
+      const ang = (h / 4294967296) * Math.PI * 2;
+      this.player.x += Math.cos(ang) * 48;
+      this.player.y += Math.sin(ang) * 48;
+      app.ui.setMultiBanner(`Phòng ${room.code} · ${room.role === 'host' ? 'Chủ phòng' : 'Khách'} · cùng loài = đồng minh`);
+      app.ui.toast(`Chơi mạng — mã phòng ${room.code}. Cùng loài hỗ trợ, khác loài có thể đánh.`, 'evo');
+    } else app.ui.setMultiBanner(null);
+
     if (!save) {
-      app.ui.toast(`Chào mừng, ${formOf(state).name}! Hãy tìm thức ăn và nước.`, 'good');
-      app.ui.toast(`Tiến hóa tới dạng cuối rồi tìm Cổng Cổ (ô tím trên bản đồ) để thách đấu Boss Giữ Cổng.`);
+      app.ui.toast(`Chào mừng, ${displayName(state)}! Hãy tìm thức ăn và nước.`, 'good');
+      if (!this.multiMode) app.ui.toast(`Tiến hóa tới dạng cuối rồi tìm Cổng Cổ (ô tím trên bản đồ) để thách đấu Boss Giữ Cổng.`);
       this.saveNow(false);
     } else if (travel) {
       app.ui.toast(`Vùng đất ${this.realm + 1}/${REALMS.length}: ${realm.name} — ${realm.desc}`, 'evo');
@@ -323,13 +362,16 @@ export class GameScene extends Phaser.Scene {
     const P = this.player;
     const oy = P.y - P.radius * 0.6;
     const reach = 200;
-    let best: Npc | null = null;
+    let best: Creature | null = null;
     if (this.lastTarget?.alive && Math.hypot(this.lastTarget.x - P.x, this.lastTarget.y - P.y) <= reach) best = this.lastTarget;
     else {
       let bd = reach;
-      for (const n of this.npcs.creaturesNear(P.x, P.y, reach)) {
+      for (const n of this.creaturesNear(P.x, P.y, reach)) {
+        if (n === P || !n.alive) continue;
+        // Prefer hostile targets (not same-species allies).
+        if (n.speciesId && n.speciesId === P.speciesId) continue;
         const d = Math.hypot(n.x - P.x, n.y - P.y);
-        if (n.alive && d < bd) {
+        if (d < bd) {
           bd = d;
           best = n;
         }
@@ -428,6 +470,7 @@ export class GameScene extends Phaser.Scene {
     this.updateEvolution(dt);
     this.npcs.update(dt);
     this.combat.update(dt);
+    this.tickMultiplayer(dt);
     this.wv.update(dt, this.clock.time, this.cameras.main);
     this.fx.update(dt);
     this.pickupCoins();
@@ -539,7 +582,138 @@ export class GameScene extends Phaser.Scene {
     const out: Creature[] = this.npcs.creaturesNear(x, y, r);
     const P = this.player;
     if (P.alive && Math.hypot(P.x - x, P.y - y) <= r) out.push(P);
+    for (const rem of this.remotes.values()) {
+      if (rem.alive && Math.hypot(rem.x - x, rem.y - y) <= r) out.push(rem);
+    }
     return out;
+  }
+
+  private setupMultiplayer(): void {
+    const room = app.multiRoom;
+    if (!room) return;
+    this.multiOff = room.onMessage((msg, from) => this.onNetMsg(msg, from));
+    // Announce ourselves so peers already in-game spawn our avatar.
+    this.broadcastState(true);
+  }
+
+  private onNetMsg(msg: NetMsg, from: string): void {
+    if (!this.started || !this.multiMode) return;
+    const id = msg.t === 'state' || msg.t === 'hello' || msg.t === 'leave' || msg.t === 'peerGone' ? msg.from : from;
+    if (msg.t === 'welcome') return;
+    if (msg.t === 'leave' || msg.t === 'peerGone') {
+      this.removeRemote(msg.from);
+      return;
+    }
+    if (msg.t === 'hello') {
+      this.ensureRemote(msg.from, msg.speciesId, this.player.x + 40, this.player.y, msg.name);
+      return;
+    }
+    if (msg.t === 'state') {
+      if (msg.from === app.multiRoom?.peerId) return;
+      const r = this.ensureRemote(msg.from, msg.speciesId, msg.x, msg.y, msg.name);
+      r.applyState(msg);
+      r.setAllyTint(msg.speciesId === this.player.speciesId);
+      return;
+    }
+    if (msg.t === 'hit') {
+      const room = app.multiRoom;
+      if (!room || msg.to !== room.peerId) return;
+      const P = this.player;
+      if (!P.alive) return;
+      const dmg = this.debug.god ? 0 : Math.max(1, Math.round(msg.damage));
+      P.hp = Math.max(0, P.hp - dmg);
+      P.kbx += msg.kx;
+      P.kby += msg.ky;
+      P.iframes = BALANCE.combat.playerIFramesSec;
+      P.hurtFlash = 0.22;
+      P.stun(BALANCE.combat.hitStunSec);
+      P.cancelAction();
+      this.lastCombatAt = this.clock.time;
+      this.lastDamageCause = 'Bị người chơi khác hạ gục.';
+      audio.play('hurt');
+      this.cameras.main.shake(120, 0.004);
+      this.fx.text(P.x, P.y - P.radius * 2 - 6, String(Math.round(msg.damage)), '#ff6a6a', 18);
+      if (P.hp <= 0) this.onPlayerDeath();
+      else this.broadcastState(true);
+      return;
+    }
+    void id;
+  }
+
+  private ensureRemote(peerId: string, speciesId: string, x: number, y: number, name = ''): RemotePlayer {
+    let r = this.remotes.get(peerId);
+    if (!r) {
+      r = new RemotePlayer(this, peerId, speciesId, x, y, name);
+      r.setAllyTint(speciesId === this.player.speciesId);
+      this.remotes.set(peerId, r);
+      app.ui.toast(`${r.joinLabel} đã vào vùng của bạn.`, speciesId === this.player.speciesId ? 'good' : 'bad');
+    } else if (name) r.setDisplayName(name);
+    return r;
+  }
+
+  private removeRemote(peerId: string): void {
+    const r = this.remotes.get(peerId);
+    if (!r) return;
+    r.destroy();
+    this.remotes.delete(peerId);
+    app.ui.toast('Một người chơi đã rời phòng.');
+  }
+
+  private broadcastState(force = false): void {
+    const room = app.multiRoom;
+    if (!room || !this.multiMode || !this.player) return;
+    const P = this.player;
+    const msg: PlayerStateMsg = {
+      t: 'state',
+      from: room.peerId,
+      x: P.x,
+      y: P.y,
+      hp: P.hp,
+      maxHp: P.maxHp,
+      speciesId: P.speciesId,
+      form: P.state.form,
+      variant: P.state.colorVariant,
+      anim: P.animName,
+      facing: P.facing,
+      alive: P.alive,
+      name: displayName(P.state),
+    };
+    room.send(msg);
+    if (force) {
+      room.send({
+        t: 'hello',
+        from: room.peerId,
+        speciesId: P.speciesId,
+        form: P.state.form,
+        variant: P.state.colorVariant,
+        name: displayName(P.state),
+      });
+    }
+  }
+
+  private tickMultiplayer(dt: number): void {
+    if (!this.multiMode) return;
+    for (const r of this.remotes.values()) r.update(dt);
+
+    // Ally support aura: slow heal while standing near same-species remotes.
+    const P = this.player;
+    if (P.alive) {
+      let nearAlly = false;
+      for (const r of this.remotes.values()) {
+        if (!r.alive || r.speciesId !== P.speciesId) continue;
+        if (Math.hypot(r.x - P.x, r.y - P.y) <= SUPPORT_RANGE) {
+          nearAlly = true;
+          break;
+        }
+      }
+      if (nearAlly) P.hp = Math.min(P.maxHp, P.hp + SUPPORT_HPS * dt);
+    }
+
+    this.multiSendT -= dt;
+    if (this.multiSendT <= 0) {
+      this.multiSendT = 1 / MULTI_SEND_HZ;
+      this.broadcastState(false);
+    }
   }
 
   // ------------------------------------------------------------------ survival helpers
@@ -910,6 +1084,22 @@ export class GameScene extends Phaser.Scene {
   private onDamage(e: DamageEvent): void {
     const now = this.clock.time;
     const P = this.player;
+    if (e.target instanceof RemotePlayer) {
+      if (e.attacker.isPlayer && !e.dot && app.multiRoom) {
+        this.lastCombatAt = now;
+        audio.play('hit');
+        const len = Math.hypot(e.target.kbx, e.target.kby) || 1;
+        app.multiRoom.send({
+          t: 'hit',
+          from: app.multiRoom.peerId,
+          to: e.target.peerId,
+          damage: e.damage,
+          kx: (e.target.kbx / len) * 40,
+          ky: (e.target.kby / len) * 40,
+        });
+      }
+      return;
+    }
     if (e.target.isPlayer) {
       this.lastCombatAt = now;
       if (P.rest.mode !== 'awake') {
@@ -1068,7 +1258,7 @@ export class GameScene extends Phaser.Scene {
     audio.play('evolveDone');
     this.cameras.main.fadeOut(600, 20, 10, 40);
     this.started = false;
-    window.setTimeout(() => app.startGame({ mode: 'travel', save }), 650);
+    window.setTimeout(() => app.startGame({ mode: 'travel', save, multi: this.multiMode || undefined }), 650);
   }
 
   private async showVictory(): Promise<void> {
@@ -1360,7 +1550,7 @@ export class GameScene extends Phaser.Scene {
     deleteSave(localStorage);
     this.combat.cancelOwner(P.uid);
     const summary = {
-      name: formOf(S).name,
+      name: displayName(S),
       cause: this.lastDamageCause || 'Kiệt sức.',
       days: S.stats.daysSurvived,
       time: formatDuration(S.stats.timeAlive),
@@ -1488,6 +1678,7 @@ export class GameScene extends Phaser.Scene {
     return {
       speciesName: getSpecies(S.speciesId).lineName,
       formName: f.name,
+      playerName: displayName(S),
       hp: S.hp,
       maxHp: P.stats.maxHp,
       hunger: S.hunger,
@@ -1542,6 +1733,13 @@ export class GameScene extends Phaser.Scene {
       kb.removeAllKeys(true);
       kb.clearCaptures();
     }
+    this.multiOff?.();
+    this.multiOff = null;
+    for (const r of this.remotes.values()) r.destroy();
+    this.remotes.clear();
+    app.ui.setMultiBanner(null);
+    this.multiMode = false;
+    // Room stays open across travel; menu / leaveMultiRoom owns destruction.
     audio.stopLoops();
     this.game.events.off(Phaser.Core.Events.POST_RENDER, this.render3d);
     this.r3d?.dispose();

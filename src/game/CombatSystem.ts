@@ -15,8 +15,10 @@ export interface Creature {
   maxHp: number;
   alive: boolean;
   isPlayer: boolean;
-  /** Species id for NPCs, 'player' for the player. Same-species NPCs never hurt each other. */
+  /** Species id for NPCs, 'player' for the local player. Same-species NPCs never hurt each other. */
   kind: string;
+  /** Player species line (moc/hoa/thuy). Same id = allies in multiplayer. */
+  speciesId?: string;
   kbx: number;
   kby: number;
   iframes: number;
@@ -140,7 +142,10 @@ export class CombatSystem {
   }
 
   private friendly(owner: Creature, t: Creature): boolean {
-    return !owner.isPlayer && !t.isPlayer && t.kind === owner.kind;
+    // Multiplayer: same species line supports each other and cannot hurt each other.
+    if (owner.speciesId && t.speciesId && owner.speciesId === t.speciesId) return true;
+    // Wild NPCs of the same kind never fight each other.
+    return !owner.isPlayer && !t.isPlayer && !owner.speciesId && !t.speciesId && t.kind === owner.kind;
   }
 
   update(dt: number): void {

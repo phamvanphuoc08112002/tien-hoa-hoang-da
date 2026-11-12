@@ -60,6 +60,9 @@ export class Player implements PlayerInfo {
   readonly uid = 1;
   readonly isPlayer = true;
   readonly kind = 'player';
+  get speciesId(): string {
+    return this.state.speciesId;
+  }
   alive = true;
   kbx = 0;
   kby = 0;
@@ -101,6 +104,10 @@ export class Player implements PlayerInfo {
   private stepT = 0;
   private outOfStaminaLock = 0;
   hurtFlash = 0;
+
+  get animName(): string {
+    return this.curAnim || 'idle';
+  }
 
   constructor(
     private scene: Phaser.Scene,
