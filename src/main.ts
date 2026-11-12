@@ -2,7 +2,10 @@ import Phaser from 'phaser';
 import './style.css';
 import { app, type GameStartData } from './app';
 import { randomSeedString } from './core/rng';
+import { REALMS, realmOf } from './data/realms';
 import { getSpecies } from './data/species';
+import { setPreview3D } from './gfx/textures';
+import { webglAvailable } from './render3d/Renderer3D';
 import { BootScene } from './scenes/BootScene';
 import { GameScene } from './scenes/GameScene';
 import { audio } from './systems/audio';
@@ -12,11 +15,13 @@ import { UI, esc } from './ui/UI';
 
 app.ui = new UI();
 audio.setSettings(app.settings);
+const use3D = webglAvailable();
+setPreview3D(use3D && app.settings.graphics3d);
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game-root',
-  backgroundColor: '#0d1210',
+  transparent: true,
   pixelArt: true,
   roundPixels: true,
   scale: {
@@ -31,12 +36,30 @@ const game = new Phaser.Game({
 });
 app.game = game;
 
+// Mobile browsers report the new viewport size late after rotation / toolbar changes,
+// so Phaser's own resize check can miss it. Re-measure a few times after the event.
+// Fixed `inset: 0` can extend behind the browser toolbars, so pin the height to the visible viewport.
+const fitViewport = () => {
+  const h = Math.round(window.visualViewport?.height ?? window.innerHeight);
+  document.documentElement.style.setProperty('--app-h', `${h}px`);
+  game.scale.refresh();
+};
+fitViewport();
+let refreshTimers: number[] = [];
+const refreshScale = () => {
+  refreshTimers.forEach((t) => window.clearTimeout(t));
+  refreshTimers = [0, 60, 250, 700, 1200].map((ms) => window.setTimeout(fitViewport, ms));
+};
+window.addEventListener('resize', refreshScale);
+window.addEventListener('orientationchange', refreshScale);
+window.visualViewport?.addEventListener('resize', refreshScale);
+
 function describeSave(r: LoadResult): string | null {
   if (r.status !== 'ok') return null;
   const p = r.data.player;
   const f = getSpecies(p.speciesId).forms[p.form];
   const date = new Date(r.data.savedAt).toLocaleString('vi-VN');
-  return `${f.name} • Cấp ${p.level} • Ngày ${p.stats.daysSurvived + 1} • seed ${r.data.seed} • lưu lúc ${date}`;
+  return `${f.name} • Cấp ${p.level} • ${realmOf(p.realm).name} (${p.realm + 1}/${REALMS.length}) • Ngày ${p.stats.daysSurvived + 1} • seed ${r.data.seed} • lưu lúc ${date}`;
 }
 
 function stopGame(): void {
@@ -45,6 +68,7 @@ function stopGame(): void {
 
 app.showMenu = (error?: string | null) => {
   stopGame();
+  setPreview3D(use3D && app.settings.graphics3d);
   const r = loadSave(localStorage);
   app.ui.showMainMenu({
     saveInfo: describeSave(r),
@@ -77,9 +101,14 @@ app.showMenu = (error?: string | null) => {
       app.showMenu(null);
     },
     onSettings: (s) => {
+      const redraw = s.graphics3d !== app.settings.graphics3d;
       app.settings = s;
       saveSettings(s);
       audio.setSettings(s);
+      if (redraw) {
+        setPreview3D(use3D && s.graphics3d);
+        app.showMenu(null);
+      }
     },
   });
 };

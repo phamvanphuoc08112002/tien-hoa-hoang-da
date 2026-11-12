@@ -4,6 +4,8 @@ import { BALANCE, expToNext } from '../config/balance';
 import { formatClock, formatDuration } from '../core/math';
 import { FOODS, canEat } from '../data/foods';
 import { MILESTONE_MAP } from '../data/milestones';
+import { NPCS } from '../data/npcs';
+import { LAST_REALM, REALMS, REALM_PLAYER_BONUS, realmOf, realmSeed } from '../data/realms';
 import { COLOR_VARIANTS, SHOP } from '../data/shop';
 import { SKILLS } from '../data/skills';
 import { getSpecies } from '../data/species';
@@ -11,7 +13,7 @@ import type { SkillDef } from '../data/types';
 import { audio } from '../systems/audio';
 import { addToInventory, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
-import { SKILL_SLOTS, createPlayerState, formOf, type PlayerState } from '../systems/playerState';
+import { SKILL_SLOTS, computeStats, createPlayerState, formOf, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
 import { SLOT_KEYS, addMastery, equipSkill, evolvePending, slotUnlocked, syncLearned, type SkillEvolution } from '../systems/skills';
 import { STATUS_INFO } from '../systems/status';
@@ -22,7 +24,7 @@ import { maxStamina, tickSurvival } from '../systems/survival';
 import { WorldClock, WeatherSystem, WEATHER_NAMES } from '../systems/timeWeather';
 import { Minimap } from '../ui/Minimap';
 import { esc, type HudData } from '../ui/UI';
-import { findDrinkableWater } from '../world/collision';
+import { findDrinkableWater, isPositionFree } from '../world/collision';
 import { BIOME_IDS, BIOME_NAMES, type WorldData } from '../world/tiles';
 import { generateWorld } from '../world/worldGen';
 import { CombatSystem, type Creature, type DamageEvent } from '../game/CombatSystem';
@@ -32,6 +34,7 @@ import { AI_STATE_NAMES, Npc, NpcManager } from '../game/Npcs';
 import { Player, type PlayerInput } from '../game/Player';
 import type { Carcass, ResourceNode } from '../game/WorldView';
 import { WorldView } from '../game/WorldView';
+import { Renderer3D, webglAvailable } from '../render3d/Renderer3D';
 
 const T = BALANCE.tile;
 
@@ -57,8 +60,12 @@ export class GameScene extends Phaser.Scene {
   private evo = new EvolutionProcess();
   private minimap!: Minimap;
   private overlayG!: Phaser.GameObjects.Graphics;
+  private r3d: Renderer3D | null = null;
+  private render3d = () => this.r3d?.render();
   private keys!: Record<KeyName, Phaser.Input.Keyboard.Key>;
   private seed = '';
+  private realm = 0;
+  private guardianDown = false;
 
   private paused = false;
   private dead = false;
@@ -70,6 +77,9 @@ export class GameScene extends Phaser.Scene {
   private lastDamageCause = '';
   private autosaveT = 0;
   private hudT = 0;
+  private bandT = 0;
+  private camShift = 0;
+  private camShiftTarget = 0;
   private minimapT = 0;
   private charT = 0;
   private exploreT = 0;
@@ -109,6 +119,9 @@ export class GameScene extends Phaser.Scene {
     this.moveAim = 0;
     this.lastCombatAt = -99;
     this.autosaveT = 0;
+    this.bandT = 0;
+    this.camShift = 0;
+    this.camShiftTarget = 0;
     this.lastSector = -1;
     this.lastTarget = null;
     this.warned = { hunger: false, thirst: false };
@@ -130,15 +143,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(data: GameStartData): void {
-    const save: SaveData | undefined = data.mode === 'continue' ? data.save : undefined;
+    const save: SaveData | undefined = data.mode !== 'new' ? data.save : undefined;
+    const travel = data.mode === 'travel';
     this.seed = save ? save.seed : (data.seed as string);
-    this.world = generateWorld(this.seed);
+    this.realm = save ? save.player.realm : 0;
+    this.guardianDown = !!save && !travel && save.world.guardianDown;
+    this.world = generateWorld(realmSeed(this.seed, this.realm), this.realm);
     this.wv = new WorldView(this, this.world);
-    if (save) this.wv.applySave(save.world);
+    if (save && !travel) this.wv.applySave(save.world);
 
     const sx = this.world.spawn.tx * T + T / 2;
     const sy = this.world.spawn.ty * T + T / 2;
     const state: PlayerState = save ? save.player : createPlayerState(data.speciesId as string, sx, sy);
+    if (travel) {
+      state.x = sx;
+      state.y = sy;
+    }
     this.clock = new WorldClock(save ? save.world.time : 0);
     this.weather = new WeatherSystem(this.seed);
     if (save) this.weather.restore(save.world.weather, save.world.weatherRemaining, save.world.weatherRolls);
@@ -156,10 +176,11 @@ export class GameScene extends Phaser.Scene {
       isNight: () => this.clock.isNight,
       days: () => this.player.state.stats.daysSurvived,
       bloodMoon: () => this.bloodMoon,
+      realm: this.realm,
       player: this.player,
       audio,
     });
-    this.npcs.bossDefeatedAt = save ? { ...save.world.bosses } : {};
+    this.npcs.bossDefeatedAt = save && !travel ? { ...save.world.bosses } : {};
     this.npcs.onRemoved = (n) => {
       if (this.lastTarget === n) this.lastTarget = null;
     };
@@ -172,13 +193,29 @@ export class GameScene extends Phaser.Scene {
     this.npcs.initialPopulate();
 
     this.lighting = new Lighting(this);
+    this.lighting.realmTint = realmOf(this.realm).tint;
+    this.wv.setPortalOpen(this.guardianDown);
     this.overlayG = this.add.graphics().setDepth(FX_DEPTH);
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, this.world.w * T, this.world.h * T);
     cam.startFollow(this.player.sprite, true, 0.14, 0.14);
     cam.setRoundPixels(true);
-    cam.setBackgroundColor('#1b2a1b');
+
+    this.r3d = null;
+    if (app.settings.graphics3d && webglAvailable()) {
+      try {
+        this.r3d = new Renderer3D({ scene: this, world: this.world, wv: this.wv, player: this.player, npcs: this.npcs });
+      } catch (e) {
+        console.error('3D view unavailable, using 2D', e);
+        this.r3d = null;
+      }
+    }
+    if (this.r3d) {
+      this.wv.animateWater = false;
+      this.lighting.setScreenTint(false);
+      this.game.events.on(Phaser.Core.Events.POST_RENDER, this.render3d);
+    } else cam.setBackgroundColor('#1b2a1b');
 
     this.setupInput();
 
@@ -200,10 +237,15 @@ export class GameScene extends Phaser.Scene {
 
     this.started = true;
     if (DEBUG_ENABLED) (window as unknown as { __scene?: GameScene }).__scene = this;
+    const realm = realmOf(this.realm);
     if (!save) {
       app.ui.toast(`Chào mừng, ${formOf(state).name}! Hãy tìm thức ăn và nước.`, 'good');
+      app.ui.toast(`Tiến hóa tới dạng cuối rồi tìm Cổng Cổ (ô tím trên bản đồ) để thách đấu Boss Giữ Cổng.`);
       this.saveNow(false);
-    } else app.ui.toast('Đã tải bản lưu.', 'good');
+    } else if (travel) {
+      app.ui.toast(`Vùng đất ${this.realm + 1}/${REALMS.length}: ${realm.name} — ${realm.desc}`, 'evo');
+      this.saveNow(false);
+    } else app.ui.toast(`Đã tải bản lưu — ${realm.name} (${this.realm + 1}/${REALMS.length}).`, 'good');
     this.checkExploration(true);
     (document.getElementById('game-root') as HTMLElement).focus();
   }
@@ -320,6 +362,7 @@ export class GameScene extends Phaser.Scene {
     if (this.paused) {
       app.ui.touch.endFrame();
       this.drawOverlay();
+      this.r3d?.hideFrom2D();
       return;
     }
 
@@ -404,6 +447,11 @@ export class GameScene extends Phaser.Scene {
     audio.updateAmbient(dt, this.clock.isNight, this.weather.state === 'rain');
     audio.setRain(this.lighting.rainIntensity);
     this.drawOverlay();
+    this.updateCameraShift(dt);
+    if (this.r3d) {
+      this.r3d.setAmbient(this.lighting.ambient, this.lighting.night);
+      this.r3d.hideFrom2D();
+    }
 
     this.hudT -= dt;
     if (this.hudT <= 0) {
@@ -656,6 +704,23 @@ export class GameScene extends Phaser.Scene {
     const preferPick = S.hunger >= BALANCE.inventory.pickupWhenHungerAbove && hasInventorySpace(S);
 
     // Structures first
+    const gate = this.wv.portal;
+    if (gate && Math.hypot(gate.obj.x - P.x, gate.obj.y - P.y) < reach + 22) {
+      const g = NPCS[realmOf(this.realm).guardian];
+      if (this.guardianDown) {
+        if (this.realm >= LAST_REALM) return { html: '<kbd>E</kbd>Cổng Cổ đã yên nghỉ', run: () => app.ui.toast('Bạn đã chinh phục mọi vùng đất!', 'good') };
+        return { html: `<kbd>E</kbd>Bước qua Cổng ➜ ${esc(REALMS[this.realm + 1].name)}`, run: () => void this.confirmTravel() };
+      }
+      if (!this.npcs.guardian()) {
+        if (S.form < 2) {
+          return {
+            html: '<kbd>E</kbd>Cổng Cổ <small>(cần tiến hóa dạng cuối)</small>',
+            run: () => app.ui.toast(`Cổng Cổ đang ngủ yên. Hãy tiến hóa tới dạng cuối để triệu hồi ${g.name}.`, 'bad'),
+          };
+        }
+        return { html: `<kbd>E</kbd>Triệu hồi Boss Giữ Cổng: ${esc(g.name)}`, run: () => void this.confirmSummon() };
+      }
+    }
     if (this.wv.shrine && Math.hypot(this.wv.shrine.x - P.x, this.wv.shrine.y - P.y) < reach + 14) {
       return { html: '<kbd>E</kbd>Mở Đền Cổ (nâng cấp bằng tiền xu)', run: () => this.openShop() };
     }
@@ -912,13 +977,115 @@ export class GameScene extends Phaser.Scene {
       app.ui.toast(`★ Hạ gục Tinh anh ${n.displayName}! +${coins} xu`, 'good');
       this.milestone('elite_1');
     }
-    if (n.def.unique) {
+    if (n.def.guardian) {
+      S.stats.bosses++;
+      this.onGuardianDefeated(n);
+    } else if (n.def.unique) {
       S.stats.bosses++;
       this.milestone(n.def.id === 'thuy_xa_vuong' ? 'swamp_boss' : 'alpha');
     }
     this.milestone('first_kill');
     if (S.stats.kills >= 10) this.milestone('hunter_10');
     this.checkLearn();
+  }
+
+  // ------------------------------------------------------------------ realms & gate guardians
+
+  private async confirmSummon(): Promise<void> {
+    const gate = this.wv.portal;
+    if (!gate || this.guardianDown || this.npcs.guardian()) return;
+    const g = NPCS[realmOf(this.realm).guardian];
+    this.paused = true;
+    const ok = await app.ui.confirm(
+      `Triệu hồi ${g.name}?`,
+      `<p>${esc(g.desc)}</p><p>Cấp <b>${g.level}</b> · Máu <b>${g.stats.maxHp}</b> · Sức mạnh <b>${g.stats.power}</b></p><p><small>Boss nổi điên khi còn một nửa máu. Nếu bạn chết, lượt chơi sẽ kết thúc.</small></p>`,
+      'Triệu hồi',
+      'Để sau',
+    );
+    this.paused = false;
+    if (!ok || this.dead || this.npcs.guardian()) return;
+    // Emerges on the far side of the gate from the player, on the first free spot.
+    const away = Math.atan2(this.player.y - gate.obj.y, this.player.x - gate.obj.x) + Math.PI;
+    let x = gate.obj.x;
+    let y = gate.obj.y - 90;
+    for (const off of [0, 0.6, -0.6, 1.2, -1.2, 1.9, -1.9, Math.PI]) {
+      const cx = gate.obj.x + Math.cos(away + off) * 100;
+      const cy = gate.obj.y + Math.sin(away + off) * 100;
+      if (isPositionFree(this.world, cx, cy, g.radius, false)) {
+        x = cx;
+        y = cy;
+        break;
+      }
+    }
+    const n = this.npcs.summonGuardian(g, x, y);
+    this.lastTarget = n;
+    this.lastTargetAt = this.clock.time;
+    this.fx.ring(n.x, n.y, 0xc08aff, 10, 160, 0.9, 6);
+    this.fx.burst(n.x, n.y - 20, 'spark', 30, { speed: 180, life: 1, tint: 0xc08aff });
+    this.cameras.main.shake(400, 0.01);
+    audio.play('evolveStart');
+    app.ui.toast(`⚠ ${g.name} đã xuất hiện!`, 'bad');
+  }
+
+  private onGuardianDefeated(n: Npc): void {
+    const S = this.player.state;
+    const realm = realmOf(this.realm);
+    this.guardianDown = true;
+    this.wv.setPortalOpen(true);
+    S.coins += realm.guardianCoins;
+    audio.play('evolveDone');
+    this.cameras.main.flash(500, 200, 160, 255);
+    const gate = this.wv.portal;
+    if (gate) this.fx.ring(gate.obj.x, gate.obj.y - 30, 0xc08aff, 12, 200, 1.2, 6);
+    app.ui.toast(`👑 Đã hạ ${n.def.name}! +${realm.guardianCoins} xu — Cổng Cổ đã mở.`, 'evo');
+    this.saveNow(false);
+    if (this.realm >= LAST_REALM) this.time.delayedCall(1800, () => void this.showVictory());
+  }
+
+  private async confirmTravel(): Promise<void> {
+    if (!this.guardianDown || this.realm >= LAST_REALM || this.evo.active) return;
+    const next = REALMS[this.realm + 1];
+    const b = REALM_PLAYER_BONUS;
+    this.paused = true;
+    const ok = await app.ui.confirm(
+      `Đến ${next.name}?`,
+      `<p>${esc(next.desc)}</p><p>Bạn giữ nguyên cấp độ, dạng tiến hóa, chiêu thức, túi đồ và tiền xu, và nhận vĩnh viễn <b>+${Math.round(b.hp * 100)}% máu, +${Math.round(b.power * 100)}% sức mạnh, +${Math.round(b.defense * 100)}% phòng thủ</b>.</p><p><small>Sinh vật ở vùng đất mới mạnh hơn nhiều. Không thể quay lại vùng đất cũ.</small></p>`,
+      'Bước qua cổng',
+      'Ở lại',
+    );
+    this.paused = false;
+    if (!ok || this.dead) return;
+    const save = this.buildSave();
+    const p = save.player;
+    p.realm = this.realm + 1;
+    p.discoveredSectors = [];
+    p.discoveredBiomes = [];
+    p.markers = [];
+    p.hp = computeStats(p).maxHp;
+    p.hunger = Math.max(p.hunger, 70);
+    p.thirst = Math.max(p.thirst, 70);
+    save.world = { ...save.world, resources: {}, collectedCoins: [], stonesUsed: [], alphaDefeatedAt: null, bosses: {}, guardianDown: false };
+    audio.play('evolveDone');
+    this.cameras.main.fadeOut(600, 20, 10, 40);
+    this.started = false;
+    window.setTimeout(() => app.startGame({ mode: 'travel', save }), 650);
+  }
+
+  private async showVictory(): Promise<void> {
+    if (this.dead) return;
+    const S = this.player.state;
+    this.paused = true;
+    const back = await app.ui.confirm(
+      '🏆 Chinh phục mọi vùng đất!',
+      `<p>${esc(formOf(S).name)} đã đánh bại cả ${REALMS.length} Boss Giữ Cổng và trở thành huyền thoại của thế giới hoang dã.</p><p>Cấp ${S.level} · ${S.stats.kills} lần hạ gục · ${S.stats.daysSurvived} ngày sinh tồn · ${formatDuration(S.stats.timeAlive)}</p>`,
+      'Tiếp tục khám phá',
+      'Về menu chính',
+    );
+    this.paused = false;
+    if (!back) {
+      this.saveNow(false);
+      app.showMenu(null);
+    }
   }
 
   // ------------------------------------------------------------------ evolution
@@ -1025,6 +1192,7 @@ export class GameScene extends Phaser.Scene {
     app.ui.toast(`✨ Tiến hóa thành công: ${f.name}!`, 'evo');
     if (f.canClimbLedges) app.ui.toast('Bạn giờ có thể leo vách đá để lên cao nguyên đá.', 'good');
     if (S.form === 1) app.ui.toast(`Mở khóa ô chiêu thứ 3 (phím ${SLOT_KEYS[2]}).`, 'good');
+    if (S.form === 2 && !this.guardianDown) app.ui.toast(`Dạng cuối! Hãy tới Cổng Cổ (ô tím trên bản đồ) để thách đấu ${NPCS[realmOf(this.realm).guardian].name}.`, 'evo');
     this.checkLearn();
     for (const e of evolvePending(S)) this.announceSkillEvolution(e);
     this.milestone(S.form === 1 ? 'evolve_1' : 'evolve_2');
@@ -1167,6 +1335,7 @@ export class GameScene extends Phaser.Scene {
         stonesUsed: ex.stonesUsed,
         alphaDefeatedAt: this.npcs.bossDefeatedAt.nham_chua ?? null,
         bosses: { ...this.npcs.bossDefeatedAt },
+        guardianDown: this.guardianDown,
       },
     };
   }
@@ -1196,7 +1365,7 @@ export class GameScene extends Phaser.Scene {
       days: S.stats.daysSurvived,
       time: formatDuration(S.stats.timeAlive),
       level: S.level,
-      form: `${formOf(S).name} (dạng ${S.form + 1}/3)`,
+      form: `${formOf(S).name} (dạng ${S.form + 1}/3) — ${realmOf(this.realm).name} (${this.realm + 1}/${REALMS.length})`,
       kills: S.stats.kills,
       coins: S.coins,
     };
@@ -1204,6 +1373,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ drawing
+
+  /** Keeps the player centred in the strip between the top and bottom HUD rather than under it on short screens. */
+  private updateCameraShift(dt: number): void {
+    const cam = this.cameras.main;
+    this.bandT -= dt;
+    if (this.bandT <= 0) {
+      this.bandT = 0.3;
+      const band = app.ui.clearBand();
+      const want = (band.top + band.bottom) / 2 - cam.height / 2;
+      this.camShiftTarget = band.bottom > band.top ? Phaser.Math.Clamp(want, -cam.height * 0.25, cam.height * 0.25) : 0;
+    }
+    this.camShift += (this.camShiftTarget - this.camShift) * Math.min(1, dt * 4);
+    cam.setFollowOffset(0, Math.round(this.camShift));
+  }
 
   private drawOverlay(): void {
     const g = this.overlayG;
@@ -1240,7 +1423,7 @@ export class GameScene extends Phaser.Scene {
       .creaturesNear(P.x, P.y, Math.min(700, vision + 100))
       .filter((n) => n.alive && (n.def.temperament === 'predator' || n.def.temperament === 'apex' || n.def.temperament === 'territorial'))
       .map((n) => ({ x: n.x, y: n.y }));
-    this.minimap.draw({ px: P.x, py: P.y, hostiles, markers: P.state.markers, discovered: this.discovered });
+    this.minimap.draw({ px: P.x, py: P.y, hostiles, markers: P.state.markers, discovered: this.discovered, portalOpen: this.guardianDown });
   }
 
   private hudData(): HudData {
@@ -1323,7 +1506,7 @@ export class GameScene extends Phaser.Scene {
       day: this.clock.day,
       weather: this.weather.state,
       night: this.clock.isNight,
-      biome: BIOME_NAMES[BIOME_IDS[this.wv.biomeAt(P.x, P.y)]],
+      biome: `Vùng ${this.realm + 1} · ${BIOME_NAMES[BIOME_IDS[this.wv.biomeAt(P.x, P.y)]]}`,
       coins: S.coins,
       inventory: S.inventory,
       skills,
@@ -1360,6 +1543,9 @@ export class GameScene extends Phaser.Scene {
       kb.clearCaptures();
     }
     audio.stopLoops();
+    this.game.events.off(Phaser.Core.Events.POST_RENDER, this.render3d);
+    this.r3d?.dispose();
+    this.r3d = null;
     this.combat?.destroy();
     this.npcs?.destroy();
     this.fx?.destroy();

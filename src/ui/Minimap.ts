@@ -21,6 +21,7 @@ export interface MinimapDots {
   hostiles: { x: number; y: number }[];
   markers: { x: number; y: number }[];
   discovered: Set<number>;
+  portalOpen?: boolean;
 }
 
 /** Pre-rendered terrain image with a cheap dynamic overlay (fog, player, markers). */
@@ -97,6 +98,13 @@ export class Minimap {
     if (this.shrine) {
       g.fillStyle = '#ffcf4a';
       g.fillRect(this.shrine.tx - 2, this.shrine.ty - 2, 5, 5);
+    }
+    const pt = this.world.portal;
+    if (pt) {
+      g.fillStyle = '#ffffff';
+      g.fillRect(pt.tx - 4, pt.ty - 4, 9, 9);
+      g.fillStyle = d.portalOpen ? '#c08aff' : '#6a3ad0';
+      g.fillRect(pt.tx - 3, pt.ty - 3, 7, 7);
     }
     g.fillStyle = '#ff4a4a';
     for (const h of d.hostiles) g.fillRect(Math.floor(h.x / T) - 1, Math.floor(h.y / T) - 1, 3, 3);

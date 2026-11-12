@@ -49,7 +49,13 @@ export class WorldView {
   readonly stones: Pickup[] = [];
   readonly shelters: WorldObject[] = [];
   shrine: WorldObject | null = null;
+  portal: { obj: WorldObject; sprite: Phaser.GameObjects.Image } | null = null;
   readonly shoreGrid = new SpatialGrid<{ x: number; y: number }>(160);
+  /** Every placed world object with its sprite (mirrored by the 3D view). */
+  readonly views: { obj: WorldObject; img: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite }[] = [];
+  layer: Phaser.Tilemaps.TilemapLayer | null = null;
+  /** Off when the 3D view draws the ground instead of the tilemap. */
+  animateWater = true;
 
   private map: Phaser.Tilemaps.Tilemap;
   private chunks = new Map<number, Phaser.GameObjects.GameObject[]>();
@@ -137,6 +143,7 @@ export class WorldView {
     if (!ts) throw new Error('Không tạo được tileset');
     const layer = map.createLayer(0, ts, 0, 0);
     layer?.setDepth(-10);
+    this.layer = layer;
     return map;
   }
 
@@ -145,7 +152,8 @@ export class WorldView {
     return Math.floor(x / C) * 1000 + Math.floor(y / C);
   }
 
-  private addToChunk(obj: Phaser.GameObjects.GameObject & { x: number; y: number; setVisible(v: boolean): unknown }): void {
+  private addToChunk(obj: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite, o: WorldObject): void {
+    this.views.push({ obj: o, img: obj });
     const k = this.chunkKey(obj.x, obj.y);
     let arr = this.chunks.get(k);
     if (!arr) {
@@ -164,36 +172,42 @@ export class WorldView {
         case 'tree':
         case 'pine': {
           const img = s.add.image(o.x, baseY - 2, `${o.kind}${o.variant % 3}`).setOrigin(0.5, 1).setDepth(baseY - 2);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           break;
         }
         case 'boulder': {
           const img = s.add.image(o.x, baseY - 1, `boulder${o.variant % 3}`).setOrigin(0.5, 1).setDepth(baseY - 1);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           break;
         }
         case 'shelter': {
           const img = s.add.image(o.x, baseY + 6, `shelter${o.variant % 3}`).setOrigin(0.5, 1).setDepth(o.y - 20);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           this.shelters.push(o);
           break;
         }
         case 'shrine': {
           const img = s.add.image(o.x, baseY + 2, 'shrine').setOrigin(0.5, 1).setDepth(baseY);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           this.shrine = o;
+          break;
+        }
+        case 'portal': {
+          const img = s.add.image(o.x, baseY + 4, 'portal_off').setOrigin(0.5, 1).setDepth(baseY);
+          this.addToChunk(img, o);
+          this.portal = { obj: o, sprite: img };
           break;
         }
         case 'stone': {
           const img = s.add.image(o.x, baseY, 'stone_new').setOrigin(0.5, 1).setDepth(baseY);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           this.stones.push({ obj: o, sprite: img, done: false });
           break;
         }
         case 'coin': {
           const spr = s.add.sprite(o.x, o.y, 'coin', 0).setDepth(o.y);
           spr.play({ key: 'coin:spin', startFrame: o.id % 4 });
-          this.addToChunk(spr);
+          this.addToChunk(spr, o);
           this.coins.push({ obj: o, sprite: spr, done: false });
           break;
         }
@@ -201,7 +215,7 @@ export class WorldView {
           const def = RESOURCES[o.kind as ResourceKind];
           if (!def) break;
           const img = s.add.image(o.x, baseY - 4, `${o.kind}_full`).setOrigin(0.5, 1).setDepth(baseY - 8);
-          this.addToChunk(img);
+          this.addToChunk(img, o);
           const node: ResourceNode = { id: o.id, obj: o, def, x: o.x, y: o.y, portions: def.portions, regrowAt: 0, img };
           this.resources.push(node);
           this.resGrid.insert(node);
@@ -291,6 +305,10 @@ export class WorldView {
     (p.sprite as Phaser.GameObjects.Image).setTexture('stone_used');
   }
 
+  setPortalOpen(open: boolean): void {
+    this.portal?.sprite.setTexture(open ? 'portal_on' : 'portal_off');
+  }
+
   shelterAt(x: number, y: number): WorldObject | null {
     const r = BALANCE.world.shelterSafeRadius;
     for (const s of this.shelters) if (Math.hypot(s.x - x, s.y - y) <= r) return s;
@@ -318,7 +336,7 @@ export class WorldView {
       this.cull(cam);
     }
     this.waterTimer -= dt;
-    if (this.waterTimer <= 0 && tilesetFrames.length > 0) {
+    if (this.waterTimer <= 0 && tilesetFrames.length > 0 && this.animateWater) {
       this.waterTimer = 0.38;
       this.waterFrame = (this.waterFrame + 1) % tilesetFrames.length;
       const tex = this.scene.textures.get('tiles') as Phaser.Textures.CanvasTexture;

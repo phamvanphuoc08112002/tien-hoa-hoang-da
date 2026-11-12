@@ -4,7 +4,8 @@ import { loadSettings, type Settings } from './systems/settings';
 import type { UI } from './ui/UI';
 
 export interface GameStartData {
-  mode: 'new' | 'continue';
+  /** 'travel' starts the next realm from a save: player kept, fresh world, placed at the new spawn. */
+  mode: 'new' | 'continue' | 'travel';
   speciesId?: string;
   seed?: string;
   save?: SaveData;

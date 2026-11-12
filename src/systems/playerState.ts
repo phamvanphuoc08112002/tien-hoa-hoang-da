@@ -1,4 +1,5 @@
 import { BALANCE } from '../config/balance';
+import { REALM_PLAYER_BONUS } from '../data/realms';
 import { getSpecies } from '../data/species';
 import type { FormDef, SpeciesDef, Stats } from '../data/types';
 
@@ -49,6 +50,8 @@ export interface PlayerState {
   equipped: (string | null)[];
   /** Mastery points per learned skill id. */
   mastery: Record<string, number>;
+  /** Index of the realm (map) the run is in; each gate crossed adds a permanent stat bonus. */
+  realm: number;
 }
 
 export function createPlayerState(speciesId: string, x: number, y: number): PlayerState {
@@ -82,6 +85,7 @@ export function createPlayerState(speciesId: string, x: number, y: number): Play
     skills: [sp.learnset[0].skill],
     equipped: [sp.learnset[0].skill, null, null],
     mastery: {},
+    realm: 0,
   };
 }
 
@@ -98,11 +102,13 @@ export function computeStats(s: PlayerState): Stats {
   const f = formOf(s);
   const p = BALANCE.progression;
   const lv = s.level - 1;
+  const r = s.realm ?? 0;
+  const rb = REALM_PLAYER_BONUS;
   return {
-    maxHp: Math.round(f.stats.maxHp * (1 + p.levelHpBonus * lv)),
+    maxHp: Math.round(f.stats.maxHp * (1 + p.levelHpBonus * lv) * (1 + rb.hp * r)),
     speed: f.stats.speed,
-    power: f.stats.power * (1 + p.levelPowerBonus * lv),
-    defense: f.stats.defense * (1 + p.levelDefenseBonus * lv),
+    power: f.stats.power * (1 + p.levelPowerBonus * lv) * (1 + rb.power * r),
+    defense: f.stats.defense * (1 + p.levelDefenseBonus * lv) * (1 + rb.defense * r),
     stamina: f.stats.stamina,
   };
 }

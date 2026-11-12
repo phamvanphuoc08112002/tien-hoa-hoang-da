@@ -43,7 +43,7 @@ export class AudioSystem {
   private night = false;
   private ambientCooldown = 2;
   private lastStep = 0;
-  private settings: Settings = { music: 0.5, sfx: 0.7, muted: false };
+  private settings: Settings = { music: 0.5, sfx: 0.7, muted: false, graphics3d: true };
 
   get ready(): boolean {
     return this.ctx !== null;

@@ -2,6 +2,7 @@ import { BALANCE } from '../config/balance';
 import { ValueNoise } from '../core/noise';
 import { Rng } from '../core/rng';
 import { FOODS, RESOURCES } from '../data/foods';
+import { realmOf } from '../data/realms';
 import type { Diet, ResourceKind } from '../data/types';
 import { BLK, TT, type ObjKind, type WorldData, type WorldObject } from './tiles';
 
@@ -15,7 +16,8 @@ const N4 = [
 
 const BLOCKING_KINDS: ReadonlySet<ObjKind> = new Set<ObjKind>(['tree', 'pine', 'boulder', 'shrine', 'stone']);
 
-export function generateWorld(seed: string): WorldData {
+export function generateWorld(seed: string, realm = 0): WorldData {
+  const G = realmOf(realm).gen;
   const W = BALANCE.world.widthTiles;
   const H = BALANCE.world.heightTiles;
   const N = W * H;
@@ -36,12 +38,12 @@ export function generateWorld(seed: string): WorldData {
   const rcy = (corner < 2 ? 0.16 : 0.84) * H;
   const scx = W - rcx;
   const scy = rcy;
-  const swampR = W * 0.2;
+  const swampR = W * G.swampFrac;
   const awayX = Math.sign(W / 2 - rcx);
   const awayY = Math.sign(H / 2 - rcy);
   const lcx = W * 0.5 + awayX * W * rng.range(0.03, 0.09);
   const lcy = H * 0.5 + awayY * H * rng.range(0.03, 0.09);
-  const lakeR = rng.range(14, 18);
+  const lakeR = rng.range(14, 18) * G.lakeMult;
 
   const ponds: { x: number; y: number; r: number }[] = [];
   for (let k = 0; k < 3; k++) {
@@ -68,7 +70,7 @@ export function generateWorld(seed: string): WorldData {
         continue;
       }
       const d = Math.hypot(x - rcx, y - rcy) / (W * 0.5);
-      const rk = 1 - d + (nElev.fbm(x / 22, y / 22) - 0.5) * 0.5;
+      const rk = 1 - d + (nElev.fbm(x / 22, y / 22) - 0.5) * 0.5 + G.rockBias;
       rockiness[i] = rk;
       const wob = (nDetail.fbm(x / 7, y / 7) - 0.5) * 0.55;
       const lakeD = Math.hypot(x - lcx, y - lcy) / lakeR + wob;
@@ -152,7 +154,7 @@ export function generateWorld(seed: string): WorldData {
     }
   }
   moist.sort((a, b) => a - b);
-  const forestThreshold = moist[Math.floor(moist.length * 0.6)] ?? 0.6;
+  const forestThreshold = moist[Math.floor(moist.length * G.forestQuantile)] ?? 0.6;
 
   for (let i = 0; i < N; i++) {
     const t = tiles[i];
@@ -193,7 +195,7 @@ export function generateWorld(seed: string): WorldData {
       if (biome[i] !== BIOME.grass) continue;
       if (waterDist2[i] < 5 || waterDist2[i] > 16) continue;
       if (rockiness[i] > 0.25) continue;
-      if (Math.hypot(x - scx, y - scy) < swampR + 25) continue;
+      if (Math.hypot(x - scx, y - scy) < swampR * G.swampAvoid + G.swampPad) continue;
       candidates.push(i);
     }
   }
@@ -418,6 +420,33 @@ export function generateWorld(seed: string): WorldData {
     if (addObj('coin', x, y)) coins++;
   }
 
+  // Ancient Gate: far from spawn on open, walkable ground so the guardian fight has room.
+  // Placed last with its own RNG so every other object keeps its id.
+  const prng = new Rng(`${seed}:portal`);
+  let portal: { tx: number; ty: number } | null = null;
+  for (const [minDist, clear] of [
+    [90, 3],
+    [60, 2],
+    [30, 1],
+  ] as const) {
+    let bestD = -1;
+    let found = 0;
+    for (let k = 0; k < 8000 && found < 60; k++) {
+      const x = prng.int(6, W - 7);
+      const y = prng.int(6, H - 7);
+      const d = Math.hypot(x - spawn.tx, y - spawn.ty);
+      if (d < minDist || !reachTerrain1[idx(x, y)] || !canPlaceFree(x, y, true)) continue;
+      if (tiles[idx(x, y)] === TT.FORD || nearTerrainBlock(x, y, clear) || nearBlocker(x, y, clear)) continue;
+      found++;
+      if (d > bestD) {
+        bestD = d;
+        portal = { tx: x, ty: y };
+      }
+    }
+    if (portal) break;
+  }
+  if (portal) addObj('portal', portal.tx, portal.ty);
+
   // Restore reserved markers.
   for (let i = 0; i < N; i++) if (occ[i] === -2) occ[i] = -1;
 
@@ -467,6 +496,7 @@ export function generateWorld(seed: string): WorldData {
     rockCenter: { tx: Math.round(rcx), ty: Math.round(rcy) },
     lakeCenter: { tx: Math.round(lcx), ty: Math.round(lcy) },
     swampCenter: { tx: Math.round(scx), ty: Math.round(scy) },
+    portal,
   };
 }
 

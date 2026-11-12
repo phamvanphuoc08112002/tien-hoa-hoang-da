@@ -234,6 +234,8 @@ export interface NpcDef {
   population: number;
   respawnSec: number;
   unique?: boolean;
+  /** Gate boss of a realm: never spawns naturally, only when summoned at the portal. Stats are used as-is. */
+  guardian?: boolean;
   /** Spawns only on rocky plateau tiles. */
   plateauOnly?: boolean;
   art: BeastArt;

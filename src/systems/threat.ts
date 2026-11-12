@@ -1,4 +1,5 @@
 import { BALANCE } from '../config/balance';
+import { realmOf } from '../data/realms';
 import type { NpcDef, StatusSpec } from '../data/types';
 
 export type EliteAffix = 'hung_bao' | 'giap_da' | 'kich_doc' | 'hoa_nguc' | 'hut_mau';
@@ -38,19 +39,23 @@ export function canBeElite(def: NpcDef): boolean {
   return !def.unique && def.temperament !== 'prey';
 }
 
-export function eliteChance(tier: number, bloodMoon: boolean): number {
+export function eliteChance(tier: number, bloodMoon: boolean, realm = 0): number {
   const t = BALANCE.threat;
-  return t.eliteChance + t.eliteChancePerTier * tier + (bloodMoon ? 0.1 : 0);
+  return t.eliteChance + t.eliteChancePerTier * tier + (bloodMoon ? 0.1 : 0) + realmOf(realm).scaling.eliteChance;
 }
 
-/** Effective stats for a creature spawned in a given tier/day, optionally as an elite. */
-export function scaleNpc(def: NpcDef, tier: number, days: number, affix: EliteAffix | null): NpcScaling {
+/** Effective stats for a creature spawned in a given tier/day/realm, optionally as an elite. */
+export function scaleNpc(def: NpcDef, tier: number, days: number, affix: EliteAffix | null, realm = 0): NpcScaling {
+  if (def.guardian) {
+    return { maxHp: def.stats.maxHp, power: def.stats.power, defense: def.stats.defense, speed: def.stats.speed, level: def.level, expMult: 1, atkCdMult: 1, lifesteal: 0 };
+  }
   const t = BALANCE.threat;
+  const rs = realmOf(realm).scaling;
   const db = dayBonus(days);
   const elite = affix !== null;
-  let maxHp = def.stats.maxHp * (1 + t.hpPerTier * tier + db);
-  let power = def.stats.power * (1 + t.powerPerTier * tier + db * 0.75);
-  let defense = def.stats.defense * (1 + t.defensePerTier * tier);
+  let maxHp = def.stats.maxHp * (1 + t.hpPerTier * tier + db) * rs.hp;
+  let power = def.stats.power * (1 + t.powerPerTier * tier + db * 0.75) * rs.power;
+  let defense = def.stats.defense * (1 + t.defensePerTier * tier) * rs.defense;
   let speed = def.stats.speed;
   let atkCdMult = 1;
   let lifesteal = 0;
@@ -70,8 +75,8 @@ export function scaleNpc(def: NpcDef, tier: number, days: number, affix: EliteAf
     power,
     defense,
     speed,
-    level: def.level + t.levelPerTier * tier + (elite ? t.eliteLevel : 0),
-    expMult: (1 + 0.25 * tier + db) * (elite ? t.eliteExp : 1),
+    level: def.level + t.levelPerTier * tier + (elite ? t.eliteLevel : 0) + rs.level,
+    expMult: (1 + 0.25 * tier + db) * (elite ? t.eliteExp : 1) * rs.exp,
     atkCdMult,
     lifesteal,
   };

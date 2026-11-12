@@ -34,18 +34,48 @@ body {
 #game-root {
   position: fixed;
   inset: 0;
+  height: var(--app-h, 100%);
   outline: none;
   touch-action: none;
+  background: #0d1210;
 }
 
 #game-root canvas {
   display: block;
+  position: relative;
+  z-index: 1;
   image-rendering: pixelated;
+}
+
+#game-root canvas.r3d {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: auto;
+}
+
+body.gfx3d #menu .creatures img,
+body.gfx3d .card .portrait img,
+body.gfx3d .card .evos img,
+body.gfx3d .char-grid img.big,
+body.gfx3d .evo-line img,
+body.gfx3d .swatch img {
+  image-rendering: auto;
+}
+
+.settings-note {
+  margin: 2px 0 0;
+  font-size: 12px;
+  opacity: 0.7;
 }
 
 #ui {
   position: fixed;
   inset: 0;
+  height: var(--app-h, 100%);
   pointer-events: none;
   z-index: 10;
 }
@@ -182,6 +212,7 @@ button.danger {
   gap: 14px;
   padding: 20px;
   overflow: auto;
+  overflow-x: hidden;
   justify-content: safe center;
 }
 #select h2 {
@@ -292,8 +323,11 @@ button.danger {
 }
 .seed-row {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
   align-items: center;
+  max-width: 100%;
 }
 .seed-row input {
   font-family: var(--font);
@@ -304,6 +338,7 @@ button.danger {
   background: #1a212c;
   color: var(--text);
   width: 170px;
+  max-width: 100%;
 }
 
 /* ---------- HUD ---------- */
@@ -696,6 +731,10 @@ kbd {
   padding: 2px 6px;
   font-size: 12px;
 }
+body.touch .slot-btn {
+  min-width: 40px;
+  min-height: 34px;
+}
 .slot-btn.on {
   background: #ffcf4a;
   color: #1a1a1a;
@@ -881,6 +920,13 @@ body.touch #hud .skillbar {
   touch-action: none;
   box-shadow: none;
 }
+.tb,
+.tb span,
+.tpill {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .tb span {
   position: relative;
   z-index: 1;
@@ -966,19 +1012,6 @@ body.touch #hud .skillbar {
   border: 1px solid rgba(90, 105, 130, 0.8);
   color: var(--text);
 }
-.rotate-hint {
-  display: none;
-  position: absolute;
-  top: 46%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(14, 18, 26, 0.85);
-  border: 1px solid var(--accent);
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  white-space: nowrap;
-}
 /* Compact HUD on touch devices */
 body.touch #hud .vitals {
   width: 190px;
@@ -1023,6 +1056,10 @@ body.touch #hud .bottom {
 body.touch #hud .xpbars {
   width: min(260px, 34vw);
 }
+body.touch #hud .xpbars .vbar {
+  grid-template-columns: 74px 1fr 40px;
+  white-space: nowrap;
+}
 body.touch .inventory .slot {
   width: 38px;
   height: 38px;
@@ -1057,22 +1094,232 @@ body.touch #hud .evo {
 body.touch #hud .debug {
   display: none;
 }
+/* Close button pinned to the top of scrollable panels (needed on touch: no Tab/Esc). */
+.panel {
+  position: relative;
+}
+.panel-x {
+  position: sticky;
+  top: 0;
+  float: right;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin: -6px -8px 0 8px;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+}
 @media (max-height: 520px) {
   .panel {
     padding: 10px 14px;
     max-height: 96vh;
+    max-height: 96dvh;
   }
   #menu {
-    gap: 8px;
+    gap: 6px;
+    padding: 8px;
   }
   #menu h1 {
-    font-size: 34px;
+    font-size: 30px;
+  }
+  #menu .creatures {
+    margin-bottom: 0;
   }
   #menu .creatures img {
-    width: 64px;
+    width: 52px;
   }
   #menu .sub {
-    margin-bottom: 4px;
+    margin: -4px 0 2px;
+    font-size: 13px;
+  }
+  #menu .buttons {
+    gap: 6px;
+  }
+  #menu .buttons button {
+    padding: 6px 14px;
+  }
+  #menu .save-info {
+    font-size: 11px;
+  }
+  /* Species select: compact cards so the pick buttons are reachable without long scrolling. */
+  #select {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  #select h2 {
+    font-size: 20px;
+  }
+  #select .cards {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .card {
+    min-width: 0;
+    padding: 8px 10px;
+    gap: 4px;
+    border-radius: 10px;
+  }
+  .card .portrait {
+    height: 52px;
+  }
+  .card .portrait img {
+    width: 52px;
+  }
+  .card .tags .tag:nth-child(3),
+  .card .skill small {
+    display: none;
+  }
+  .card [data-pick] {
+    margin-top: auto;
+  }
+  .card h3 {
+    font-size: 16px;
+  }
+  .tag {
+    font-size: 10.5px;
+    padding: 1px 6px;
+  }
+  .card .blurb,
+  .card .evos {
+    display: none;
+  }
+  .statbar {
+    grid-template-columns: 62px 1fr 28px;
+    font-size: 10.5px;
+    gap: 4px;
+  }
+  .statbar .bar {
+    height: 6px;
+  }
+  .card .skill {
+    font-size: 10.5px;
+    padding: 4px 6px;
+  }
+  .card button {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  .char-grid {
+    grid-template-columns: 110px 1fr;
+    gap: 10px;
+  }
+  .char-grid img.big {
+    width: 100px;
+  }
+  /* Smaller button cluster so it does not cover the minimap column. */
+  body.touch .tbtns {
+    transform: scale(0.82);
+    transform-origin: bottom right;
+  }
+  body.touch .joy-base {
+    left: calc(env(safe-area-inset-left, 0px) + 76px);
+    top: calc(100% - 80px);
+  }
+}
+/* Tablets: the phone-sized touch HUD looks tiny, scale it back up. */
+@media (min-width: 900px) and (min-height: 700px) {
+  body.touch #hud .vitals {
+    width: 250px;
+    padding: 8px 10px;
+    gap: 3px;
+  }
+  body.touch .vitals .name {
+    font-size: 15px;
+  }
+  body.touch .vbar {
+    grid-template-columns: 64px 1fr 40px;
+    font-size: 12.5px;
+  }
+  body.touch .vbar .track {
+    height: 9px;
+  }
+  body.touch #hud .status {
+    font-size: 12px;
+  }
+  body.touch #hud canvas.minimap {
+    width: 160px;
+    height: 160px;
+  }
+  body.touch #hud .clock {
+    font-size: 12.5px;
+  }
+  body.touch .inventory .slot {
+    width: 46px;
+    height: 46px;
+  }
+  body.touch .toast {
+    font-size: 13.5px;
+  }
+  body.touch #hud .target {
+    width: min(300px, 40vw);
+    font-size: 12.5px;
+  }
+  body.touch .tbtns {
+    transform: scale(1.15);
+    transform-origin: bottom right;
+  }
+  body.touch .joy-base {
+    transform: scale(1.2);
+    left: calc(env(safe-area-inset-left, 0px) + 110px);
+    top: calc(100% - 120px);
+  }
+  body.touch .tpill {
+    font-size: 14px;
+    padding: 8px 14px;
+  }
+}
+@media (max-height: 400px) {
+  body.touch #hud canvas.minimap {
+    width: 84px;
+    height: 84px;
+  }
+}
+/* Landscape phone with browser toolbars showing: very little height, so lay the top-right box out sideways. */
+@media (max-height: 340px) {
+  body.touch #hud .topright {
+    display: grid;
+    grid-auto-flow: column;
+    align-items: start;
+    justify-items: end;
+  }
+  body.touch #hud .minimap-wrap {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  body.touch #hud .clock {
+    grid-column: 1;
+  }
+  body.touch #hud canvas.minimap {
+    width: 72px;
+    height: 72px;
+  }
+  body.touch .tbtns {
+    transform: scale(0.74);
+  }
+  body.touch .inventory .slot {
+    width: 34px;
+    height: 34px;
+  }
+}
+@media (max-width: 600px) {
+  .char-grid {
+    grid-template-columns: 1fr;
+  }
+  .char-grid img.big {
+    width: 96px;
+  }
+  .stat-table td {
+    padding-right: 6px;
+  }
+  .skill-row .slot-btns {
+    float: none;
+    margin: 0 0 4px;
+  }
+  .slot-btn {
+    min-width: 40px;
+    padding: 6px 8px;
   }
 }
 @media (max-width: 520px) {
@@ -1084,9 +1331,14 @@ body.touch #hud .debug {
   }
 }
 @media (orientation: portrait) {
-  body.touch .rotate-hint {
-    display: block;
-    top: 40%;
+  body.touch #hud .warnings {
+    top: 216px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 94vw;
+  }
+  body.touch #hud .toasts {
+    top: 252px;
   }
   body.touch .ttop {
     top: 178px;
@@ -1095,13 +1347,12 @@ body.touch #hud .debug {
     transform: none;
   }
   body.touch #hud .bottom {
-    bottom: 232px;
+    bottom: 256px;
   }
   body.touch #hud .xpbars {
-    width: 70vw;
+    width: 76vw;
   }
   body.touch #hud .toasts {
-    top: 220px;
     max-width: 90vw;
   }
   body.touch #hud .target {
@@ -1109,5 +1360,32 @@ body.touch #hud .debug {
     left: 6px;
     transform: none;
     width: 50vw;
+  }
+}
+/* Phone held upright: shrink the button cluster so both thumbs have room, and sit the bars right above it. */
+@media (orientation: portrait) and (max-width: 600px) {
+  body.touch .tbtns {
+    transform: scale(0.82);
+    transform-origin: bottom right;
+  }
+  body.touch .joy-base {
+    left: calc(env(safe-area-inset-left, 0px) + 74px);
+    top: calc(100% - 92px);
+  }
+  body.touch #hud .bottom {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 214px);
+  }
+  body.touch .tbtns,
+  body.touch .joy-zone {
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+/* Tablet held upright: the enlarged cluster is taller, keep the bars clear of it. */
+@media (orientation: portrait) and (min-width: 601px) {
+  body.touch #hud .bottom {
+    bottom: 300px;
+  }
+  body.touch #hud .xpbars {
+    width: min(76vw, 460px);
   }
 }

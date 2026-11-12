@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BALANCE } from '../src/config/balance';
+import { LAST_REALM } from '../src/data/realms';
 import { createPlayerState } from '../src/systems/playerState';
 import { syncLearned } from '../src/systems/skills';
 import { MemoryStorage, SAVE_KEY, deleteSave, loadSave, parseSave, serializeSave, writeSave, type SaveData } from '../src/systems/save';
@@ -33,6 +34,7 @@ function sample(): SaveData {
       stonesUsed: [2],
       alphaDefeatedAt: null,
       bosses: { thuy_xa_vuong: 500 },
+      guardianDown: false,
     },
   };
 }
@@ -145,6 +147,30 @@ describe('save / load', () => {
     if (r.status !== 'ok') throw new Error('expected ok');
     expect(r.data.player.skills).toContain('vo_moi_2');
     expect(r.data.player.skills).toContain('vong_lua');
+  });
+
+  it('saves made before realms existed start in the first realm with a closed gate', () => {
+    const d = sample() as any;
+    delete d.player.realm;
+    delete d.world.guardianDown;
+    const r = parseSave(JSON.stringify(d));
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.data.player.realm).toBe(0);
+    expect(r.data.world.guardianDown).toBe(false);
+  });
+
+  it('keeps the realm and gate state, clamping impossible realms', () => {
+    const d = sample() as any;
+    d.player.realm = 3;
+    d.world.guardianDown = true;
+    let r = parseSave(JSON.stringify(d));
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.data.player.realm).toBe(3);
+    expect(r.data.world.guardianDown).toBe(true);
+    d.player.realm = 99;
+    r = parseSave(JSON.stringify(d));
+    if (r.status !== 'ok') throw new Error('expected ok');
+    expect(r.data.player.realm).toBe(LAST_REALM);
   });
 
   it('delete removes the save', () => {

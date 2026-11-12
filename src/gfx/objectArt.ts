@@ -256,6 +256,43 @@ export function shrineArt(): HTMLCanvasElement {
   });
 }
 
+/** Ancient Gate: a stone arch, dormant (dim runes) or open (swirling void). */
+export function portalArt(open: boolean): HTMLCanvasElement {
+  return sprite(40, 48, (g) => {
+    ellipse(g, 20, 45, 18, 3, '#4a463f');
+    // pillars
+    rect(g, 4, 12, 7, 33, '#7b766b');
+    rect(g, 4, 12, 2, 33, '#a8a294');
+    rect(g, 29, 12, 7, 33, '#6f6a5e');
+    rect(g, 34, 12, 2, 33, '#5a554b');
+    rect(g, 2, 42, 11, 4, '#5f5a50');
+    rect(g, 27, 42, 11, 4, '#5f5a50');
+    // arch
+    poly(g, [2, 14, 8, 5, 20, 1, 32, 5, 38, 14, 32, 12, 20, 8, 8, 12], '#8b8679');
+    poly(g, [8, 5, 20, 1, 32, 5, 20, 3], '#bcb6a8');
+    rect(g, 18, 2, 4, 5, '#5a554b');
+    // void
+    const core = open ? ['#2a1450', '#6a3ad0', '#c08aff', '#f0e0ff'] : ['#1a1820', '#24222c', '#2e2a38', '#3a3646'];
+    ellipse(g, 20, 27, 9, 16, core[0]);
+    ellipse(g, 20, 27, 7, 13, core[1]);
+    ellipse(g, 20, 26, 4.5, 9, core[2]);
+    ellipse(g, 20, 24, 2, 4, core[3]);
+    if (open) {
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        rect(g, Math.round(20 + Math.cos(a) * 6), Math.round(27 + Math.sin(a) * 11), 1, 1, '#ffffff');
+      }
+    }
+    // runes on pillars
+    const rune = open ? '#c08aff' : '#57526a';
+    for (let k = 0; k < 4; k++) {
+      rect(g, 7, 16 + k * 7, 2, 3, rune);
+      rect(g, 31, 16 + k * 7, 2, 3, rune);
+    }
+    rect(g, 19, 3, 2, 2, open ? '#ffffff' : '#7a748a');
+  });
+}
+
 export function stoneArt(used: boolean): HTMLCanvasElement {
   return sprite(14, 26, (g) => {
     ellipse(g, 7, 24, 6, 1.6, '#4a463f');

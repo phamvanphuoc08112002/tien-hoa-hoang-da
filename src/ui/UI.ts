@@ -82,7 +82,8 @@ const TOUCH_HELP: [string, string][] = [
   ['Cần trái', 'Kéo để di chuyển'],
   ['Đánh', 'Giữ để đánh liên tục, tự nhắm con gần nhất'],
   ['Chạm màn hình', 'Đánh về hướng vừa chạm'],
-  ['Kỹ năng / Né', 'Nút tròn bên phải'],
+  ['Q / R / T / Né', 'Chiêu thức và né tránh (nút tròn bên phải)'],
+  ['Nhân vật', 'Chỉ số, chiêu thức, gắn chiêu và tiến hóa'],
   ['Chạy', 'Bật/tắt chạy nhanh'],
   ['Dùng', 'Ăn / uống / tương tác (hoặc chạm vào lời nhắc)'],
   ['Ô túi', 'Chạm để ăn đồ mang theo'],
@@ -172,7 +173,7 @@ export class UI {
       <div class="buttons">
         <button class="primary" data-a="continue" ${o.saveInfo ? '' : 'disabled'}>Tiếp tục</button>
         <button data-a="new">Chơi mới</button>
-        <button data-a="settings">Cài đặt âm thanh</button>
+        <button data-a="settings">Cài đặt</button>
         ${o.saveInfo || o.error ? '<button class="danger" data-a="delete">Xóa bản lưu</button>' : ''}
       </div>
       <div class="save-info">${o.saveInfo ? esc(o.saveInfo) : 'Chưa có bản lưu'}</div>
@@ -188,14 +189,16 @@ export class UI {
     return `
       <div class="settings-row"><label>Nhạc nền</label><input type="range" min="0" max="100" value="${Math.round(s.music * 100)}" data-s="music"><span>${Math.round(s.music * 100)}</span></div>
       <div class="settings-row"><label>Hiệu ứng</label><input type="range" min="0" max="100" value="${Math.round(s.sfx * 100)}" data-s="sfx"><span>${Math.round(s.sfx * 100)}</span></div>
-      <div class="settings-row"><label>Tắt tiếng</label><input type="checkbox" data-s="muted" ${s.muted ? 'checked' : ''}></div>`;
+      <div class="settings-row"><label>Tắt tiếng</label><input type="checkbox" data-s="muted" ${s.muted ? 'checked' : ''}></div>
+      <div class="settings-row"><label>Đồ họa 3D</label><input type="checkbox" data-s="graphics3d" ${s.graphics3d ? 'checked' : ''}></div>
+      <p class="settings-note">Tắt 3D nếu máy chạy chậm. Có hiệu lực khi vào lại game.</p>`;
   }
 
   private bindSettings(el: HTMLElement, s: Settings, onChange: (s: Settings) => void): void {
     el.querySelectorAll<HTMLInputElement>('input[data-s]').forEach((inp) => {
       inp.addEventListener('input', () => {
         const k = inp.dataset.s as keyof Settings;
-        if (k === 'muted') s.muted = inp.checked;
+        if (k === 'muted' || k === 'graphics3d') s[k] = inp.checked;
         else {
           s[k] = Number(inp.value) / 100;
           const span = inp.nextElementSibling as HTMLElement | null;
@@ -208,7 +211,7 @@ export class UI {
 
   private settingsDialog(s: Settings, onChange: (s: Settings) => void): void {
     const m = this.div('modal');
-    m.innerHTML = `<div class="panel"><h2>Cài đặt âm thanh</h2>${this.settingsHtml(s)}<div class="row"><button class="primary" data-a="ok">Xong</button></div></div>`;
+    m.innerHTML = `<div class="panel"><h2>Cài đặt</h2>${this.settingsHtml(s)}<div class="row"><button class="primary" data-a="ok">Xong</button></div></div>`;
     this.bindSettings(m, s, onChange);
     this.dialogOpen = true;
     m.querySelector('[data-a=ok]')?.addEventListener('click', () => {
@@ -345,6 +348,22 @@ export class UI {
     this.hud.classList.toggle('hidden', !v);
   }
 
+  /** Vertical band (in px, relative to the HUD) left uncovered by HUD panels around the screen's centre column. */
+  clearBand(): { top: number; bottom: number } {
+    const box = this.hud.getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    let top = 0;
+    let bottom = box.height;
+    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bottom > :not(.prompt)').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0 || r.right < cx - 40 || r.left > cx + 40) return;
+      const mid = (r.top + r.bottom) / 2 - box.top;
+      if (mid < box.height / 2) top = Math.max(top, r.bottom - box.top);
+      else bottom = Math.min(bottom, r.top - box.top);
+    });
+    return { top, bottom };
+  }
+
   mountMinimap(c: HTMLCanvasElement): void {
     this.els.minimap.innerHTML = '';
     this.els.minimap.append(c);
@@ -450,10 +469,14 @@ export class UI {
     this.charEvolve = null;
   }
 
-  private openOverlay(kind: 'char' | 'pause' | 'shop', html: string): HTMLElement {
+  private openOverlay(kind: 'char' | 'pause' | 'shop', html: string, onClose: () => void = () => this.closeOverlay()): HTMLElement {
     this.closeOverlay();
     const o = this.div('overlay');
-    o.innerHTML = `<div class="panel">${html}</div>`;
+    o.innerHTML = `<div class="panel"><button class="panel-x" data-a="x" aria-label="Đóng">✕</button>${html}</div>`;
+    o.querySelector('[data-a=x]')?.addEventListener('click', onClose);
+    o.addEventListener('click', (e) => {
+      if (e.target === o) onClose();
+    });
     this.root.append(o);
     this.overlay = o;
     this.overlayKind = kind;
@@ -483,14 +506,14 @@ export class UI {
             <tr><td>Tinh anh ★</td><td>${s.stats.elites}</td><td>Chúa tể</td><td>${s.stats.bosses}</td></tr>
           </table>
           <h3>Chiêu thức</h3>
-          <div style="font-size:13px"><div><kbd>Chuột</kbd><b>${esc(f.basic.name)}</b> — đòn cơ bản về hướng con trỏ</div></div>
+          <div style="font-size:13px"><div><kbd>${this.touch.enabled ? 'Đánh' : 'Chuột'}</kbd><b>${esc(f.basic.name)}</b> — đòn cơ bản ${this.touch.enabled ? '(tự nhắm con gần nhất)' : 'về hướng con trỏ'}</div></div>
           <div data-e="skill-area" style="font-size:13px"></div>
         </div>
       </div>
       <h3>Tiến hóa</h3>
       <div class="evo-line">${evoLine}</div>
       <div data-e="evo-area"></div>
-      <div class="row"><button data-a="close">Đóng (Tab)</button></div>`;
+      <div class="row"><button data-a="close">${this.touch.enabled ? 'Đóng' : 'Đóng (Tab)'}</button></div>`;
     const o = this.openOverlay('char', html);
     o.querySelector('[data-a=close]')?.addEventListener('click', () => this.closeOverlay());
     this.charRefresh = getData;
@@ -580,13 +603,12 @@ export class UI {
         <button data-a="save">Lưu game</button>
         <button class="danger" data-a="quit">Lưu & thoát</button>
       </div>
-      <h3>Âm thanh</h3>
+      <h3>Âm thanh & đồ họa</h3>
       ${this.settingsHtml(s)}
       <h3>Điều khiển</h3>
-      ${this.touch.enabled ? `<div class="controls-list">${TOUCH_HELP.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div><h3>Bàn phím</h3>` : ''}
-      <div class="controls-list">${controls.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div>
+      ${this.touch.enabled ? `<div class="controls-list">${TOUCH_HELP.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div>` : `<div class="controls-list">${controls.map(([k, v]) => `<div><kbd>${esc(k)}</kbd>${esc(v)}</div>`).join('')}</div>`}
       ${cb.debug ? `<h3>Debug</h3><div class="row" style="justify-content:flex-start"><button data-d="hit">Hitbox</button><button data-d="god">Bất tử</button><button data-d="evo">Đủ điều kiện tiến hóa</button><button data-d="time">+3 giờ</button></div><div style="font-size:12px" data-d="flags">${esc(cb.debug.flags())}</div>` : ''}`;
-    const o = this.openOverlay('pause', html);
+    const o = this.openOverlay('pause', html, cb.resume);
     this.bindSettings(o, s, cb.settings);
     o.querySelector('[data-a=resume]')?.addEventListener('click', cb.resume);
     o.querySelector('[data-a=save]')?.addEventListener('click', cb.save);
@@ -621,7 +643,7 @@ export class UI {
       <div>Tiền xu hiện có: <b style="color:#ffcf4a">🪙 ${s.coins}</b></div>
       <div class="shop-item"><div><b>Túi mang thêm</b><div class="desc">Thêm 1 ô chứa thức ăn (hiện ${s.slots}/${BALANCE.inventory.maxSlots}).</div></div>
         ${slotMax ? '<button disabled>Tối đa</button>' : `<button data-a="slot" ${s.coins >= slotCost ? '' : 'disabled'}>Mua 🪙${slotCost}</button>`}</div>
-      <div class="shop-item"><div><b>Dấu đánh dấu bản đồ</b><div class="desc">Nhấn <kbd>M</kbd> để đặt/xóa dấu tại vị trí hiện tại (tối đa ${SHOP.maxMarkers}). Hiện trên bản đồ nhỏ và trong thế giới.</div></div>
+      <div class="shop-item"><div><b>Dấu đánh dấu bản đồ</b><div class="desc">${this.touch.enabled ? 'Bấm nút <kbd>Dấu</kbd>' : 'Nhấn <kbd>M</kbd>'} để đặt/xóa dấu tại vị trí hiện tại (tối đa ${SHOP.maxMarkers}). Hiện trên bản đồ nhỏ và trong thế giới.</div></div>
         ${s.markersUnlocked ? '<button disabled>Đã mở</button>' : `<button data-a="markers" ${s.coins >= SHOP.markerUnlockCost ? '' : 'disabled'}>Mua 🪙${SHOP.markerUnlockCost}</button>`}</div>
       <h3>Màu ngoại hình</h3>
       <div class="color-swatches">${colors}</div>

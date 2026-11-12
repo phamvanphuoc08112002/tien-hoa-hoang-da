@@ -29,7 +29,7 @@ export const BIOME_NAMES: Record<Biome, string> = {
 /** Movement blocking classes stored in WorldData.blocked. */
 export const BLK = { FREE: 0, SOLID: 1, WATER: 2, LEDGE: 3 } as const;
 
-export type StructureKind = 'shelter' | 'shrine' | 'stone';
+export type StructureKind = 'shelter' | 'shrine' | 'stone' | 'portal';
 export type ObjKind = 'tree' | 'pine' | 'boulder' | 'coin' | StructureKind | ResourceKind;
 
 export interface WorldObject {
@@ -61,6 +61,8 @@ export interface WorldData {
   rockCenter: { tx: number; ty: number };
   lakeCenter: { tx: number; ty: number };
   swampCenter: { tx: number; ty: number };
+  /** Ancient Gate leading to the next realm (guarded by the realm boss). */
+  portal: { tx: number; ty: number } | null;
 }
 
 export function isWaterTile(t: number): boolean {

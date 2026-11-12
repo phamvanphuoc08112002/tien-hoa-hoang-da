@@ -54,14 +54,21 @@ export class TouchControls {
         <button class="tpill hidden" data-b="marker">Dấu</button>
         <button class="tpill" data-b="fullscreen" title="Toàn màn hình">⛶</button>
         <button class="tpill" data-b="pause">❚❚</button>
-      </div>
-      <div class="rotate-hint">Xoay ngang màn hình để chơi dễ hơn</div>`;
+      </div>`;
     parent.append(this.el);
     this.base = this.el.querySelector('.joy-base') as HTMLElement;
     this.knob = this.el.querySelector('.joy-knob') as HTMLElement;
     this.el.querySelectorAll<HTMLElement>('[data-b]').forEach((b) => this.buttons.set(b.dataset.b as string, b));
     this.bindJoystick(this.el.querySelector('.joy-zone') as HTMLElement);
     this.buttons.forEach((b, id) => this.bindButton(b, id));
+    // iOS ignores user-scalable=no and pointer-event preventDefault: a long press opens the text
+    // magnifier and a quick double tap zooms. Only cancelling the raw touch events stops both.
+    const block = (e: Event) => {
+      if (e.cancelable) e.preventDefault();
+    };
+    for (const type of ['touchstart', 'touchmove', 'touchend']) this.el.addEventListener(type, block, { passive: false });
+    document.addEventListener('gesturestart', block);
+    document.addEventListener('dblclick', block);
 
     const forced = new URLSearchParams(location.search).has('touch');
     if (forced || window.matchMedia('(pointer: coarse)').matches) this.enable();
@@ -194,11 +201,7 @@ export class TouchControls {
       else doc.webkitExitFullscreen?.();
       return;
     }
-    const lock = () => {
-      const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-      o?.lock?.('landscape').catch(() => {});
-    };
-    if (el.requestFullscreen) el.requestFullscreen().then(lock, () => {});
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
     else el.webkitRequestFullscreen?.();
   }
 }

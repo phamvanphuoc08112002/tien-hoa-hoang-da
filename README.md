@@ -35,7 +35,7 @@ npm test           # chạy kiểm thử logic (Vitest)
 
 ### Điện thoại / máy tính bảng
 
-Nút cảm ứng tự hiện trên thiết bị màn hình cảm ứng (hoặc thêm `?touch` vào URL để bật thủ công). Nên xoay ngang màn hình.
+Nút cảm ứng tự hiện trên thiết bị màn hình cảm ứng (hoặc thêm `?touch` vào URL để bật thủ công). Chơi được cả khi cầm dọc lẫn cầm ngang, giao diện tự sắp xếp lại khi xoay máy.
 
 - Cần điều khiển ảo (nửa trái màn hình): di chuyển.
 - **Đánh**: giữ để đánh liên tục, tự nhắm con gần nhất; chạm vào bản đồ để đánh về hướng đó.
@@ -77,6 +77,23 @@ Dạng 2 trở lên có thể leo vách đá để lên cao nguyên đá, nơi c
 - Bản đồ 260×260 ô (trước là 180×180) với 5 quần xã: Đồng cỏ, Rừng, Hồ, Đá và **Đầm lầy** mới.
 - Đầm lầy làm chậm di chuyển (trừ loài hệ Thủy), nước đầm gây độc cho loài không phải hệ Thủy, có Ếch Độc, Cá Sấu Bùn và chúa tể **Thủy Xà Vương**.
 - Thêm ao, nơi trú ẩn, Đá khám phá, xu và các loài mới: Nhím Gai, Linh Miêu Đêm, Gấu Rừng Già, Bọ Cạp Đá.
+
+### Vùng đất & Boss Giữ Cổng
+
+Mỗi lượt chơi đi qua 5 vùng đất, mỗi vùng có bản đồ riêng (cùng seed nhưng địa hình khác), màu không khí riêng, và sinh vật mạnh dần:
+
+| # | Vùng đất | Địa hình | Boss Giữ Cổng |
+|---|---|---|---|
+| 1 | Thung Lũng Khởi Nguyên | Cân bằng | Mộc Thần Cổ Thụ (cấp 18) |
+| 2 | Rừng Sương Mù | Rừng phủ kín | Sương Lang Vương (cấp 26) |
+| 3 | Đầm Lầy Hắc Ám | Đầm lầy rộng | Hắc Ngạc Chúa (cấp 34) |
+| 4 | Cao Nguyên Hỏa Ngục | Vùng đá và cao nguyên lớn | Hỏa Long Nham Đế (cấp 42) |
+| 5 | Vực Hư Không | Hỗn hợp | Hư Không Thần Thú (cấp 50) |
+
+- **Cổng Cổ** nằm xa điểm xuất phát (ô tím trên bản đồ nhỏ). Khi đã tiến hóa tới **dạng cuối**, tương tác với cổng để triệu hồi Boss Giữ Cổng.
+- Hạ boss: nhận xu và mở cổng. Bước qua cổng để sang vùng đất tiếp theo, giữ nguyên cấp độ, dạng, chiêu thức, túi đồ và xu, nhận vĩnh viễn +15% máu, +12% sức mạnh, +10% phòng thủ mỗi cổng.
+- Vùng đất càng sau, sinh vật càng nhiều máu, sức mạnh, phòng thủ, cấp độ và tỉ lệ Tinh anh, nhưng cũng cho nhiều EXP hơn.
+- Hạ Hư Không Thần Thú ở vùng thứ 5 là chiến thắng; có thể tiếp tục khám phá sau đó.
 
 ## Lưu game
 

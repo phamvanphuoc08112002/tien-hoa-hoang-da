@@ -48,6 +48,8 @@ export interface NpcEnv {
   /** Dawns survived; raises creature strength over time. */
   days(): number;
   bloodMoon(): boolean;
+  /** Current realm index; scales every creature. */
+  realm: number;
   player: PlayerInfo;
   audio: AudioSystem;
 }
@@ -127,6 +129,7 @@ export class Npc implements Creature {
     tier: number,
     days: number,
     affix: EliteAffix | null,
+    realm = 0,
   ) {
     this.kind = def.id;
     this.x = x;
@@ -135,7 +138,7 @@ export class Npc implements Creature {
     this.homeY = y;
     this.tier = tier;
     this.affix = affix;
-    this.sc = scaleNpc(def, tier, days, affix);
+    this.sc = scaleNpc(def, tier, days, affix, realm);
     this.radius = def.radius * (affix ? 1.12 : 1);
     this.maxHp = this.sc.maxHp;
     this.hp = this.maxHp;
@@ -275,15 +278,31 @@ export class NpcManager {
   }
 
   spawn(def: NpcDef, x: number, y: number, affix: EliteAffix | null = null): Npc {
-    const n = new Npc(this.scene, def, x, y, this.tierFor(x, y), this.env.days(), affix);
+    const n = new Npc(this.scene, def, x, y, this.tierFor(x, y), this.env.days(), affix, this.env.realm);
     this.npcs.push(n);
     this.grid.insert(n);
     return n;
   }
 
+  /** The realm's gate guardian, if it has been summoned and is still alive. */
+  guardian(): Npc | null {
+    return this.npcs.find((n) => n.alive && n.def.guardian) ?? null;
+  }
+
+  /** Brings the gate guardian in at a spot near the portal and sets it on the player. */
+  summonGuardian(def: NpcDef, x: number, y: number): Npc {
+    const n = this.spawn(def, x, y);
+    n.setState('fight');
+    n.target = this.env.player;
+    n.chaseX = x;
+    n.chaseY = y;
+    n.hbTimer = 999;
+    return n;
+  }
+
   private rollAffix(def: NpcDef, x: number, y: number): EliteAffix | null {
     if (!canBeElite(def)) return null;
-    if (Math.random() >= eliteChance(this.tierFor(x, y), this.env.bloodMoon())) return null;
+    if (Math.random() >= eliteChance(this.tierFor(x, y), this.env.bloodMoon(), this.env.realm)) return null;
     return AFFIX_IDS[Math.floor(Math.random() * AFFIX_IDS.length)];
   }
 

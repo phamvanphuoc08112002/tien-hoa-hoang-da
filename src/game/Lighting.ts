@@ -2,6 +2,11 @@ import Phaser from 'phaser';
 import type { Weather } from '../data/types';
 import { ambientTint, nightFactor } from '../systems/timeWeather';
 
+function multiplyColor(a: number, b: number): number {
+  const ch = (s: number) => Math.round((((a >> s) & 255) * ((b >> s) & 255)) / 255);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
 const DEPTH = 9000;
 
 interface Drop {
@@ -26,6 +31,11 @@ export class Lighting {
   private heatAmount = 0;
   private bloodAmount = 0;
   private visionScale = 6;
+  /** Per-realm colour cast multiplied into the ambient light. */
+  realmTint = 0xffffff;
+  /** Current ambient colour (time of day × weather × realm); applied by the 3D view when active. */
+  ambient = 0xffffff;
+  night = 0;
   evoGlow: Phaser.GameObjects.Image;
   evoBeam: Phaser.GameObjects.Image;
 
@@ -43,6 +53,11 @@ export class Lighting {
 
   private newDrop(w: number, h: number, anywhere: boolean): Drop {
     return { x: Math.random() * (w + 200) - 100, y: anywhere ? Math.random() * h : -20 - Math.random() * 60, len: 10 + Math.random() * 10, speed: 600 + Math.random() * 250 };
+  }
+
+  /** The multiply tint cannot darken a canvas underneath Phaser's, so the 3D view lights itself instead. */
+  setScreenTint(on: boolean): void {
+    this.tint.setVisible(on);
   }
 
   resize(w: number, h: number): void {
@@ -64,9 +79,11 @@ export class Lighting {
     this.bloodAmount += (targetBlood - this.bloodAmount) * Math.min(1, dt * 0.8);
     this.bloodHaze.setAlpha(this.bloodAmount * (0.12 + 0.03 * Math.sin(this.scene.time.now / 600)));
     const cam = this.scene.cameras.main;
-    this.tint.fillColor = ambientTint(hour, weather);
+    this.ambient = multiplyColor(ambientTint(hour, weather), this.realmTint);
+    this.tint.fillColor = this.ambient;
 
     const nf = nightFactor(hour);
+    this.night = nf;
     const forestDim = inForest ? 0.35 : 0;
     const visAlpha = Math.min(0.88, nf * 0.82 + forestDim * (0.6 + nf * 0.4));
     const radius = Lighting.visionRadius(hour, inForest);

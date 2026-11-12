@@ -1,5 +1,6 @@
 import { BALANCE } from '../config/balance';
 import { FOODS } from '../data/foods';
+import { LAST_REALM } from '../data/realms';
 import { SPECIES } from '../data/species';
 import { COLOR_VARIANTS } from '../data/shop';
 import type { Weather } from '../data/types';
@@ -27,6 +28,8 @@ export interface WorldSave {
   alphaDefeatedAt: number | null;
   /** Simulated time each unique boss was last defeated, by NPC id. */
   bosses: Record<string, number>;
+  /** The current realm's gate guardian has been defeated (the gate is open). */
+  guardianDown: boolean;
 }
 
 export interface SaveData {
@@ -108,7 +111,9 @@ function sanitize(d: SaveData): SaveData {
     if (!isNum(p.stats[k])) p.stats[k] = 0;
   }
   ensureSkillState(p);
+  p.realm = isNum(p.realm) ? c(Math.floor(p.realm), 0, LAST_REALM) : 0;
   const w = d.world;
+  w.guardianDown = w.guardianDown === true;
   w.weatherRemaining = isNum(w.weatherRemaining) ? w.weatherRemaining : 60;
   w.weatherRolls = isNum(w.weatherRolls) ? w.weatherRolls : 0;
   w.alphaDefeatedAt = isNum(w.alphaDefeatedAt) ? w.alphaDefeatedAt : null;

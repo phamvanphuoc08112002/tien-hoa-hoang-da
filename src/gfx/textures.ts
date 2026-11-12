@@ -18,6 +18,7 @@ import {
   nestArt,
   particleArt,
   pineArt,
+  portalArt,
   shadowArt,
   shelterArt,
   shrineArt,
@@ -25,6 +26,7 @@ import {
   treeArt,
   visionMaskArt,
 } from './objectArt';
+import { chibiPreviewUrl } from '../render3d/preview';
 import { makeCanvas } from './pixel';
 import { renderTileset } from './tilesetGen';
 
@@ -126,6 +128,8 @@ export function registerAllTextures(scene: Phaser.Scene): void {
   addImage(scene, 'shrine', shrineArt());
   addImage(scene, 'stone_new', stoneArt(false));
   addImage(scene, 'stone_used', stoneArt(true));
+  addImage(scene, 'portal_off', portalArt(false));
+  addImage(scene, 'portal_on', portalArt(true));
   addSheet(scene, 'coin', coinSheet(), 20, 4);
   if (!scene.anims.exists('coin:spin')) {
     scene.anims.create({ key: 'coin:spin', frames: [0, 1, 2, 1].map((f) => ({ key: 'coin', frame: f })), frameRate: 7, repeat: -1 });
@@ -141,13 +145,21 @@ export function registerAllTextures(scene: Phaser.Scene): void {
 
 // ---- DOM-facing image caches (data URLs) ----
 const urlCache = new Map<string, string>();
+let preview3D = false;
+
+/** Switches creature portraits between 3D chibi renders and the 2D pixel sprites. */
+export function setPreview3D(on: boolean): void {
+  preview3D = on;
+  document.body.classList.toggle('gfx3d', on);
+}
 
 export function speciesPreviewUrl(speciesId: string, form: number, silhouette: boolean, variant = 'goc'): string {
-  const key = `${speciesId}:${form}:${silhouette}:${variant}`;
+  const key = `${speciesId}:${form}:${silhouette}:${variant}:${preview3D ? '3d' : '2d'}`;
   let u = urlCache.get(key);
   if (!u) {
     const f = getSpecies(speciesId).forms[form];
-    u = renderBeastPreview(f.art, applyVariant(f.art.pal, variant), silhouette).toDataURL();
+    const pal = applyVariant(f.art.pal, variant);
+    u = (preview3D ? chibiPreviewUrl(f.art, pal, silhouette) : null) ?? renderBeastPreview(f.art, pal, silhouette).toDataURL();
     urlCache.set(key, u);
   }
   return u;
