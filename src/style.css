@@ -771,11 +771,12 @@ kbd {
   color: var(--accent);
 }
 .slot .sk-ico {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   image-rendering: auto;
   margin-top: 4px;
   border-radius: 50%;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 .slot .sk-name {
   font-size: 10px;
@@ -1054,13 +1055,14 @@ kbd {
   align-items: flex-start;
 }
 .skill-row > .sk-ico {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   flex: 0 0 auto;
   image-rendering: auto;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  border: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
 .skill-row-main {
   flex: 1;
@@ -1093,12 +1095,13 @@ kbd {
   color: #e8eef8;
 }
 .skill-tip img {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   flex: 0 0 auto;
   image-rendering: auto;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.3);
+  background: transparent;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
 .skill-tip-body {
   flex: 1;
@@ -1342,15 +1345,16 @@ body.touch #hud .skillbar {
 .tb .tb-ico {
   position: absolute;
   left: 50%;
-  top: 44%;
-  width: 40px;
-  height: 40px;
-  margin: -20px 0 0 -20px;
+  top: 42%;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
   image-rendering: auto;
+  -webkit-user-drag: none;
   pointer-events: none;
   z-index: 1;
   border-radius: 50%;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
 .tb .tb-ico.hidden {
   display: none;
@@ -1378,10 +1382,10 @@ body.touch #hud .skillbar {
   z-index: 2;
 }
 .tb.big .tb-ico {
-  width: 56px;
-  height: 56px;
-  margin: -28px 0 0 -28px;
-  top: 42%;
+  width: 62px;
+  height: 62px;
+  margin: -31px 0 0 -31px;
+  top: 40%;
 }
 .tb.big.has-ico span:not(.tb-key) {
   font-size: 11px;
