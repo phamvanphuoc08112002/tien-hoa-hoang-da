@@ -4,7 +4,7 @@ export interface Settings {
   music: number;
   sfx: number;
   muted: boolean;
-  /** 3D world view (falls back to the 2D pixel-art view when off or unsupported). */
+  /** Always on — kept on the type for save compatibility / WebGL fallback. */
   graphics3d: boolean;
 }
 
@@ -19,7 +19,8 @@ export function loadSettings(): Settings {
       music: typeof o.music === 'number' ? Math.max(0, Math.min(1, o.music)) : DEFAULTS.music,
       sfx: typeof o.sfx === 'number' ? Math.max(0, Math.min(1, o.sfx)) : DEFAULTS.sfx,
       muted: typeof o.muted === 'boolean' ? o.muted : DEFAULTS.muted,
-      graphics3d: typeof o.graphics3d === 'boolean' ? o.graphics3d : DEFAULTS.graphics3d,
+      // 3D is the fixed default — ignore older saves that turned it off.
+      graphics3d: true,
     };
   } catch {
     return { ...DEFAULTS };
@@ -28,7 +29,7 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    localStorage.setItem(KEY, JSON.stringify({ ...s, graphics3d: true }));
   } catch {
     /* ignore quota / privacy mode errors */
   }

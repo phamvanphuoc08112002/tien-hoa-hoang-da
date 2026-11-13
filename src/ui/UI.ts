@@ -285,21 +285,20 @@ export class UI {
     return `
       <div class="settings-row"><label>Nhạc nền</label><input type="range" min="0" max="100" value="${Math.round(s.music * 100)}" data-s="music"><span>${Math.round(s.music * 100)}</span></div>
       <div class="settings-row"><label>Hiệu ứng</label><input type="range" min="0" max="100" value="${Math.round(s.sfx * 100)}" data-s="sfx"><span>${Math.round(s.sfx * 100)}</span></div>
-      <div class="settings-row"><label>Tắt tiếng</label><input type="checkbox" data-s="muted" ${s.muted ? 'checked' : ''}></div>
-      <div class="settings-row"><label>Đồ họa 3D</label><input type="checkbox" data-s="graphics3d" ${s.graphics3d ? 'checked' : ''}></div>
-      <p class="settings-note">Tắt 3D nếu máy chạy chậm. Có hiệu lực khi vào lại game.</p>`;
+      <div class="settings-row"><label>Tắt tiếng</label><input type="checkbox" data-s="muted" ${s.muted ? 'checked' : ''}></div>`;
   }
 
   private bindSettings(el: HTMLElement, s: Settings, onChange: (s: Settings) => void): void {
     el.querySelectorAll<HTMLInputElement>('input[data-s]').forEach((inp) => {
       inp.addEventListener('input', () => {
         const k = inp.dataset.s as keyof Settings;
-        if (k === 'muted' || k === 'graphics3d') s[k] = inp.checked;
-        else {
+        if (k === 'muted') s[k] = inp.checked;
+        else if (k === 'music' || k === 'sfx') {
           s[k] = Number(inp.value) / 100;
           const span = inp.nextElementSibling as HTMLElement | null;
           if (span) span.textContent = inp.value;
         }
+        s.graphics3d = true;
         onChange({ ...s });
       });
     });
