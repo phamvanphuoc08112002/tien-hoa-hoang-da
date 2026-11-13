@@ -664,11 +664,37 @@ export class UI {
   }
 
   toast(msg: string, kind: '' | 'good' | 'bad' | 'evo' = ''): void {
+    // Don't stack the same line repeatedly — refresh its timer instead.
+    for (const el of Array.from(this.toastBox.children) as HTMLElement[]) {
+      if (el.textContent === msg) {
+        el.classList.remove('out');
+        const prev = Number(el.dataset.tid || 0);
+        window.clearTimeout(prev);
+        const tid = window.setTimeout(() => this.fadeToast(el), 2000);
+        el.dataset.tid = String(tid);
+        return;
+      }
+    }
     const t = this.div(`toast ${kind}`);
     t.textContent = msg;
     this.toastBox.append(t);
-    while (this.toastBox.children.length > 5) this.toastBox.firstElementChild?.remove();
-    window.setTimeout(() => t.remove(), 3600);
+    while (this.toastBox.children.length > 2) {
+      const old = this.toastBox.firstElementChild as HTMLElement | null;
+      if (old) this.fadeToast(old, true);
+    }
+    const tid = window.setTimeout(() => this.fadeToast(t), kind === 'bad' || kind === 'evo' ? 2600 : 2000);
+    t.dataset.tid = String(tid);
+  }
+
+  private fadeToast(el: HTMLElement, instant = false): void {
+    const prev = Number(el.dataset.tid || 0);
+    window.clearTimeout(prev);
+    if (instant || !el.isConnected) {
+      el.remove();
+      return;
+    }
+    el.classList.add('out');
+    window.setTimeout(() => el.remove(), 220);
   }
 
   evoProgress(show: boolean, title = '', progress = 0, left = 0): void {
