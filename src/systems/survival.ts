@@ -147,11 +147,14 @@ export function tickSurvival(
     const mult = (starving ? 1 : 0) + (dehydrated ? 1 : 0);
     damage = stats.maxHp * S.starveDamageFracPerSec * mult * dt;
     s.hp = Math.max(0, s.hp - damage);
-  } else if (s.hp > 0 && !ctx.inCombat && !ctx.poisoned && s.hunger >= S.hpRegenMinNeeds && s.thirst >= S.hpRegenMinNeeds && s.hp < stats.maxHp) {
-    let mult = 1;
-    if (sleeping) mult = S.sleepHpMult;
-    else if (resting) mult = S.restHpMult;
-    s.hp = Math.min(stats.maxHp, s.hp + stats.maxHp * S.hpRegenFracPerSec * mult * dt);
+  } else if (s.hp > 0 && !ctx.inCombat && !ctx.poisoned && s.hp < stats.maxHp) {
+    const need = resting || sleeping ? S.hpRegenRestMinNeeds : S.hpRegenMinNeeds;
+    if (s.hunger >= need && s.thirst >= need) {
+      let mult = 1;
+      if (sleeping) mult = S.sleepHpMult;
+      else if (resting) mult = S.restHpMult;
+      s.hp = Math.min(stats.maxHp, s.hp + stats.maxHp * S.hpRegenFracPerSec * mult * dt);
+    }
   }
   if (ctx.buffRegen > 0 && s.hp > 0) s.hp = Math.min(stats.maxHp, s.hp + stats.maxHp * ctx.buffRegen * dt);
 

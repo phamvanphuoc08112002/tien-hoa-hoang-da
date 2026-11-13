@@ -29,7 +29,7 @@ export const BIOME_NAMES: Record<Biome, string> = {
 /** Movement blocking classes stored in WorldData.blocked. */
 export const BLK = { FREE: 0, SOLID: 1, WATER: 2, LEDGE: 3 } as const;
 
-export type StructureKind = 'shelter' | 'shrine' | 'stone' | 'portal';
+export type StructureKind = 'shelter' | 'shrine' | 'stone' | 'portal' | 'healpad';
 export type ObjKind = 'tree' | 'pine' | 'boulder' | 'coin' | StructureKind | ResourceKind;
 
 export interface WorldObject {

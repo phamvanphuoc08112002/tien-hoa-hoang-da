@@ -46,6 +46,17 @@ describe('eating', () => {
     expect(r.maturity).toBeGreaterThan(0);
   });
 
+  it('plants restore HP when eating', () => {
+    const s = createPlayerState('moc', 0, 0);
+    s.hp = 40;
+    s.hunger = 50;
+    const maxHp = 100;
+    const r = eatFood(s, 'herbivore', 'qua', maxHp);
+    expect(r.ok).toBe(true);
+    expect(r.heal).toBeGreaterThan(0);
+    expect(s.hp).toBeCloseTo(40 + 22 * 0.9, 5);
+  });
+
   it('gives no growth when eating while already full', () => {
     const s = createPlayerState('moc', 0, 0);
     s.hunger = BALANCE.maturity.eatNoGrowthAbove + 1;

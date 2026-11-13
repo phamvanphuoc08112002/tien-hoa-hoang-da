@@ -62,6 +62,28 @@ describe('survival needs', () => {
     expect(s.hp).toBe(0);
   });
 
+  it('resting regenerates HP faster than standing when fed', () => {
+    const mk = () => {
+      const s = createPlayerState('moc', 0, 0);
+      s.hunger = 80;
+      s.thirst = 80;
+      s.hp = 40;
+      return s;
+    };
+    const stand = mk();
+    const rest = mk();
+    const r = new RestController();
+    r.toggle();
+    const st = computeStats(stand);
+    run(8, (dt) => {
+      r.update(dt, rest.fatigue);
+      tickSurvival(stand, st, formOf(stand), dt, ctx(), new StaminaClock());
+      tickSurvival(rest, st, formOf(rest), dt, ctx({ rest: r }), new StaminaClock());
+    });
+    expect(rest.hp).toBeGreaterThan(stand.hp);
+    expect(rest.hp).toBeGreaterThan(40);
+  });
+
   it('sprinting consumes stamina; resting recovers faster than standing', () => {
     const s = createPlayerState('hoa', 0, 0);
     const st = computeStats(s);

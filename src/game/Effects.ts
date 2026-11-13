@@ -32,15 +32,32 @@ export interface Ring {
   life: number;
   maxLife: number;
   width: number;
+  fill?: number;
+}
+
+export interface Beam {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  color: number;
+  life: number;
+  maxLife: number;
+  width: number;
 }
 
 export const FX_DEPTH = 9500;
+
+function hexColor(n: number): string {
+  return `#${(n >>> 0).toString(16).padStart(6, '0')}`;
+}
 
 /** Pooled particles, floating texts and expanding rings. All driven by simulated dt. */
 export class Effects {
   private particles: Particle[] = [];
   private texts: FloatText[] = [];
   rings: Ring[] = [];
+  beams: Beam[] = [];
 
   constructor(scene: Phaser.Scene) {
     for (let i = 0; i < BALANCE.resources.maxParticles; i++) {
@@ -101,9 +118,25 @@ export class Effects {
     t.txt.setText(s).setPosition(x, y).setColor(color).setFontSize(size).setVisible(true).setAlpha(1);
   }
 
-  ring(x: number, y: number, color: number, r0: number, r1: number, life = 0.4, width = 3): void {
-    if (this.rings.length > 40) this.rings.shift();
-    this.rings.push({ x, y, r0, r1, color, life, maxLife: life, width });
+  /** Bigger cast callout for skill names. */
+  skillName(x: number, y: number, name: string, color: number): void {
+    this.text(x, y, name, hexColor(color), 17);
+  }
+
+  ring(x: number, y: number, color: number, r0: number, r1: number, life = 0.4, width = 3, fill = 0): void {
+    if (this.rings.length > 64) this.rings.shift();
+    this.rings.push({ x, y, r0, r1, color, life, maxLife: life, width, fill });
+  }
+
+  /** Soft filled pulse that expands and fades (great for nova / buff). */
+  pulse(x: number, y: number, color: number, r0: number, r1: number, life = 0.45, fill = 0.28): void {
+    this.ring(x, y, color, r0, r1, life, 3, fill);
+  }
+
+  /** Short directional streak (muzzle / dash afterimage). */
+  beam(x0: number, y0: number, x1: number, y1: number, color: number, life = 0.28, width = 10): void {
+    if (this.beams.length > 48) this.beams.shift();
+    this.beams.push({ x0, y0, x1, y1, color, life, maxLife: life, width });
   }
 
   update(dt: number): void {
@@ -138,13 +171,31 @@ export class Effects {
       this.rings[i].life -= dt;
       if (this.rings[i].life <= 0) this.rings.splice(i, 1);
     }
+    for (let i = this.beams.length - 1; i >= 0; i--) {
+      this.beams[i].life -= dt;
+      if (this.beams[i].life <= 0) this.beams.splice(i, 1);
+    }
   }
 
   drawRings(g: Phaser.GameObjects.Graphics): void {
     for (const r of this.rings) {
       const t = 1 - r.life / r.maxLife;
-      g.lineStyle(r.width, r.color, 1 - t);
-      g.strokeCircle(r.x, r.y, r.r0 + (r.r1 - r.r0) * t);
+      const rad = r.r0 + (r.r1 - r.r0) * t;
+      const a = 1 - t;
+      if (r.fill && r.fill > 0) {
+        g.fillStyle(r.color, r.fill * a);
+        g.fillCircle(r.x, r.y, rad);
+      }
+      g.lineStyle(r.width, r.color, a);
+      g.strokeCircle(r.x, r.y, rad);
+    }
+    for (const b of this.beams) {
+      const t = 1 - b.life / b.maxLife;
+      const a = 1 - t;
+      g.lineStyle(b.width * (1 - t * 0.5), b.color, a * 0.85);
+      g.lineBetween(b.x0, b.y0, b.x1, b.y1);
+      g.lineStyle(Math.max(2, b.width * 0.35), 0xffffff, a * 0.45);
+      g.lineBetween(b.x0, b.y0, b.x1, b.y1);
     }
   }
 
@@ -154,5 +205,6 @@ export class Effects {
     this.particles = [];
     this.texts = [];
     this.rings = [];
+    this.beams = [];
   }
 }

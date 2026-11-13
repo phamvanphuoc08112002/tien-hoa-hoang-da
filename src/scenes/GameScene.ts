@@ -11,7 +11,7 @@ import { SKILLS } from '../data/skills';
 import { getSpecies } from '../data/species';
 import type { SkillDef } from '../data/types';
 import { audio } from '../systems/audio';
-import { addToInventory, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
+import { addToInventory, applyHeal, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
 import { SKILL_SLOTS, computeStats, createPlayerState, displayName, finalFormIndex, formOf, isFinalForm, sanitizePlayerName, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
@@ -94,6 +94,9 @@ export class GameScene extends Phaser.Scene {
   private lastTargetAt = -99;
   private warned = { hunger: false, thirst: false };
   private prevRestMode = 'awake';
+  private restHealFxT = 0;
+  private padHealFxT = 0;
+  private nearHealpad = false;
   private interaction: Interaction | null = null;
   private debug = { hitbox: false, god: false };
   private discovered = new Set<number>();
@@ -202,10 +205,25 @@ export class GameScene extends Phaser.Scene {
     this.npcs.onRemoved = (n) => {
       if (this.lastTarget === n) this.lastTarget = null;
     };
+    this.npcs.onRespawned = (n) => {
+      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) < 520) {
+        app.ui.toast(`${n.displayName} xuất hiện lại.`, '');
+      }
+    };
+    this.wv.onResourceRegrow = (node) => {
+      this.fx.burst(node.x, node.y - 8, 'leaf', 10, { speed: 60, life: 0.55, tint: 0x7dffb0 });
+      this.fx.pulse(node.x, node.y, 0x7dffb0, 4, 28, 0.4, 0.22);
+    };
+    this.wv.onHealpadReady = (pad) => {
+      this.fx.burst(pad.obj.x, pad.obj.y - 16, 'star', 10, { speed: 70, life: 0.55, tint: 0x5ef0a0 });
+      this.fx.pulse(pad.obj.x, pad.obj.y, 0x5ef0a0, 6, 36, 0.45, 0.25);
+    };
     this.npcs.onEnrage = (n) => {
-      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) < 700) {
+      if (Math.hypot(n.x - this.player.x, n.y - this.player.y) < 780) {
         app.ui.toast(`${n.def.name} nổi điên! Tấn công nhanh và dữ dội hơn.`, 'bad');
-        this.cameras.main.shake(250, 0.008);
+        this.cameras.main.shake(380, n.def.guardian || n.def.id === 'hu_khong_than' ? 0.016 : 0.011);
+        this.fx.burst(n.x, n.y, 'dust', 24, { speed: 200, life: 0.7, gravity: 160 });
+        this.fx.pulse(n.x, n.y, 0xff6a5a, 20, 120, 0.55, 0.25);
       }
     };
     this.npcs.initialPopulate();
@@ -244,7 +262,12 @@ export class GameScene extends Phaser.Scene {
 
     this.setupInput();
 
-    this.minimap = new Minimap(this.world, this.wv.shelters, this.wv.shrine);
+    this.minimap = new Minimap(
+      this.world,
+      this.wv.shelters,
+      this.wv.shrine,
+      this.wv.healpads.map((h) => h.obj),
+    );
     app.ui.hideScreens();
     app.ui.closeOverlay();
     app.ui.showHud(true);
@@ -475,7 +498,8 @@ export class GameScene extends Phaser.Scene {
       else if (tick.dehydrated) this.lastDamageCause = 'Chết khát.';
       decaySatiation(S, dt);
       this.passiveGrowth(dt);
-      this.trackRest();
+      this.applyHealpadAura(dt);
+      this.trackRest(dt);
       this.warnNeeds();
       if (this.debug.god) S.hp = Math.max(S.hp, 1);
     }
@@ -763,7 +787,7 @@ export class GameScene extends Phaser.Scene {
     if (S.hunger >= m.passiveMinNeeds && S.thirst >= m.passiveMinNeeds) addMaturity(S, m.passivePerSec * dt);
   }
 
-  private trackRest(): void {
+  private trackRest(dt: number): void {
     const P = this.player;
     const mode = P.rest.mode;
     if (mode !== this.prevRestMode) {
@@ -771,7 +795,19 @@ export class GameScene extends Phaser.Scene {
         app.ui.toast(P.inShelter ? 'Bạn đã ngủ say trong nơi trú ẩn.' : 'Bạn ngủ ngoài trời — kẻ săn mồi có thể tấn công!', P.inShelter ? 'good' : 'bad');
         if (P.inShelter) this.milestone('safe_sleep');
       } else if (this.prevRestMode === 'sleeping' && mode === 'resting') app.ui.toast('Bạn đã ngủ đủ, hết mệt mỏi.', 'good');
+      else if (mode === 'resting') app.ui.toast('Nằm nghỉ — máu sẽ hồi dần nếu no đủ.', 'good');
       this.prevRestMode = mode;
+      this.restHealFxT = 0;
+    }
+    if (P.rest.settled && P.hp > 0 && P.hp < P.maxHp && !this.nearHealpad) {
+      this.restHealFxT -= dt;
+      if (this.restHealFxT <= 0) {
+        this.restHealFxT = 1.4;
+        const need = BALANCE.survival.hpRegenRestMinNeeds;
+        if (P.state.hunger >= need && P.state.thirst >= need && !this.inCombat()) {
+          this.fx.text(P.x, P.y - P.radius * 2.3, '+máu', '#7dffb0', 11);
+        }
+      }
     }
   }
 
@@ -937,6 +973,19 @@ export class GameScene extends Phaser.Scene {
     if (this.wv.shrine && Math.hypot(this.wv.shrine.x - P.x, this.wv.shrine.y - P.y) < reach + 14) {
       return { html: '<kbd>E</kbd>Mở Đền Cổ (nâng cấp bằng tiền xu)', run: () => this.openShop() };
     }
+    for (const pad of this.wv.healpads) {
+      if (Math.hypot(pad.obj.x - P.x, pad.obj.y - P.y) < reach + 10) {
+        const cd = Math.max(0, pad.readyAt - this.clock.time);
+        if (P.hp >= P.maxHp) return { html: '<kbd>E</kbd>Trụ Hồi Máu <small>(đã đầy máu)</small>', run: () => app.ui.toast('Bạn đã đầy máu.', '') };
+        if (cd > 0) {
+          return {
+            html: `<kbd>E</kbd>Trụ Hồi Máu <small>(hồi sau ${Math.ceil(cd)}s · đứng gần vẫn hồi nhẹ)</small>`,
+            run: () => app.ui.toast(`Trụ đang hồi năng lượng (${Math.ceil(cd)}s). Đứng gần vẫn được hồi nhẹ.`, ''),
+          };
+        }
+        return { html: '<kbd>E</kbd>Hấp thụ Trụ Hồi Máu', run: () => this.useHealpad(pad) };
+      }
+    }
     for (const st of this.wv.stones) {
       if (st.done) continue;
       if (Math.hypot(st.obj.x - P.x, st.obj.y - P.y) < reach + 6) return { html: '<kbd>E</kbd>Khám phá Đá Cổ', run: () => this.useStone(st) };
@@ -944,11 +993,21 @@ export class GameScene extends Phaser.Scene {
 
     // Food
     let food: { label: string; dist: number; run: () => void } | null = null;
+    const wantHeal = P.hp < P.maxHp * 0.7;
+    const canSnackHeal = P.hp < P.maxHp;
     const carcass = this.wv.carcGrid.nearest(P.x, P.y, reach, (c) => c.portions > 0);
     if (carcass && canEat(diet, 'thit')) {
       const d = Math.hypot(carcass.x - P.x, carcass.y - P.y);
-      if (preferPick) food = { label: `<kbd>E</kbd>Nhặt Thịt vào túi`, dist: d, run: () => this.pickCarcass(carcass) };
-      else if (!full) food = { label: `<kbd>E</kbd>Ăn Thịt <small>(+${Math.round(FOODS.thit.hunger * FOODS.thit.efficiency[diet])} no)</small>`, dist: d, run: () => this.eatCarcass(carcass) };
+      if (preferPick && !wantHeal) food = { label: `<kbd>E</kbd>Nhặt Thịt vào túi`, dist: d, run: () => this.pickCarcass(carcass) };
+      else if (!full || canSnackHeal) {
+        const f = FOODS.thit;
+        const heal = Math.round(f.heal * f.efficiency[diet]);
+        food = {
+          label: `<kbd>E</kbd>Ăn Thịt <small>(+${Math.round(f.hunger * f.efficiency[diet])} no${heal > 0 ? ` · +${heal} máu` : ''})</small>`,
+          dist: d,
+          run: () => this.eatCarcass(carcass),
+        };
+      }
     }
     const node = this.wv.resGrid.nearest(P.x, P.y, reach, (n) => n.portions > 0 && canEat(diet, n.def.food));
     if (node) {
@@ -956,10 +1015,16 @@ export class GameScene extends Phaser.Scene {
       if (!food || d < food.dist) {
         const f = FOODS[node.def.food];
         const eff = f.efficiency[diet];
-        if (preferPick && f.carriable) food = { label: `<kbd>E</kbd>Hái ${esc(f.name)} vào túi`, dist: d, run: () => this.pickNode(node) };
-        else if (!full || node.def.kind === 'crystal') {
+        if (preferPick && f.carriable && !wantHeal) food = { label: `<kbd>E</kbd>Hái ${esc(f.name)} vào túi`, dist: d, run: () => this.pickNode(node) };
+        else if (!full || canSnackHeal || node.def.kind === 'crystal') {
           const effTxt = eff < 1 ? ` · hiệu quả ${Math.round(eff * 100)}%` : '';
-          food = { label: `<kbd>E</kbd>${esc(node.def.verb)} ${esc(f.name)} <small>(+${Math.round(f.hunger * eff)} no${effTxt})</small>`, dist: d, run: () => this.eatNode(node) };
+          const heal = Math.round(f.heal * eff);
+          const healTxt = heal > 0 ? ` · +${heal} máu` : '';
+          food = {
+            label: `<kbd>E</kbd>${esc(node.def.verb)} ${esc(f.name)} <small>(+${Math.round(f.hunger * eff)} no${healTxt}${effTxt})</small>`,
+            dist: d,
+            run: () => this.eatNode(node),
+          };
         }
       }
     }
@@ -980,10 +1045,10 @@ export class GameScene extends Phaser.Scene {
     this.faceTo(node.x);
     P.startTimedAction('eat', BALANCE.actions.eatSec, () => {
       if (node.portions <= 0) return;
-      const r = eatFood(P.state, P.diet, node.def.food);
+      const r = eatFood(P.state, P.diet, node.def.food, P.stats.maxHp);
       if (!r.ok) return;
       this.wv.consume(node, this.clock.time);
-      this.afterEat(node.def.food, r.hunger, r.maturity, node.x, node.y);
+      this.afterEat(node.def.food, r.hunger, r.maturity, r.heal, node.x, node.y);
     });
     audio.play('eat');
   }
@@ -993,10 +1058,10 @@ export class GameScene extends Phaser.Scene {
     this.faceTo(c.x);
     P.startTimedAction('eat', BALANCE.actions.eatSec, () => {
       if (c.portions <= 0) return;
-      const r = eatFood(P.state, P.diet, 'thit');
+      const r = eatFood(P.state, P.diet, 'thit', P.stats.maxHp);
       if (!r.ok) return;
       this.wv.consumeCarcass(c);
-      this.afterEat('thit', r.hunger, r.maturity, c.x, c.y);
+      this.afterEat('thit', r.hunger, r.maturity, r.heal, c.x, c.y);
     });
     audio.play('eat');
   }
@@ -1025,24 +1090,69 @@ export class GameScene extends Phaser.Scene {
       app.ui.toast(`${FOODS[id].name} không hợp với chế độ ăn của bạn.`, 'bad');
       return;
     }
-    if (P.state.hunger >= 99.5) {
+    const canHeal = FOODS[id].heal > 0 && P.hp < P.maxHp;
+    if (P.state.hunger >= 99.5 && !canHeal) {
       app.ui.toast('Bạn đã no.', '');
       return;
     }
     P.startTimedAction('eat', BALANCE.actions.eatSec, () => {
-      const r = eatFromSlot(P.state, P.diet, i);
-      if (r.ok) this.afterEat(id, r.hunger, r.maturity, P.x, P.y);
+      const r = eatFromSlot(P.state, P.diet, i, P.stats.maxHp);
+      if (r.ok) this.afterEat(id, r.hunger, r.maturity, r.heal, P.x, P.y);
     });
     audio.play('eat');
   }
 
-  private afterEat(foodId: string, hunger: number, maturity: number, x: number, y: number): void {
+  private afterEat(foodId: string, hunger: number, maturity: number, heal: number, x: number, y: number): void {
     this.fx.burst(x, y - 6, foodId === 'thit' ? 'blood' : 'leaf', 6, { speed: 60, life: 0.5, tint: foodId === 'thit' ? 0xc04040 : undefined });
-    this.fx.text(this.player.x, this.player.y - this.player.radius * 2.6, `+${Math.round(hunger)} no${maturity > 0.05 ? ` · +${maturity.toFixed(1)} 🌱` : ''}`, '#9af07a', 14);
+    const bits = [`+${Math.round(hunger)} no`];
+    if (heal > 0.5) bits.push(`+${Math.round(heal)} máu`);
+    if (maturity > 0.05) bits.push(`+${maturity.toFixed(1)} 🌱`);
+    this.fx.text(this.player.x, this.player.y - this.player.radius * 2.6, bits.join(' · '), heal > 0.5 ? '#7dffb0' : '#9af07a', 14);
     if (maturity <= 0.05 && BALANCE.maturity.formGainMult[this.player.state.form] > 0 && foodId !== 'khoang') {
       if (Math.random() < 0.3) app.ui.toast('Ăn quá no hoặc ăn liên tục không giúp trưởng thành thêm.', '');
     }
     this.milestone('first_meal');
+  }
+
+  private useHealpad(pad: import('../game/WorldView').HealPad): void {
+    const P = this.player;
+    const H = BALANCE.heal.healpad;
+    if (pad.readyAt > this.clock.time) return;
+    if (P.hp >= P.maxHp) {
+      app.ui.toast('Bạn đã đầy máu.', '');
+      return;
+    }
+    const got = applyHeal(P.state, P.stats.maxHp, P.stats.maxHp * H.burstFrac);
+    if (got <= 0) return;
+    this.wv.useHealpad(pad, this.clock.time, H.cooldownSec);
+    audio.play('drink');
+    this.fx.burst(pad.obj.x, pad.obj.y - 18, 'star', 12, { speed: 70, life: 0.7, tint: 0x5ef0a0 });
+    this.fx.ring(pad.obj.x, pad.obj.y, 0x5ef0a0, 3, 36, 0.6, 2);
+    this.fx.text(P.x, P.y - P.radius * 2.6, `+${Math.round(got)} máu`, '#7dffb0', 16);
+    app.ui.toast(`Trụ Hồi Máu chữa lành bạn (+${Math.round(got)} máu). Sẽ nạp lại sau ${H.cooldownSec}s.`, 'good');
+  }
+
+  private applyHealpadAura(dt: number): void {
+    const P = this.player;
+    if (!P.alive || P.hp <= 0 || P.hp >= P.maxHp) {
+      this.nearHealpad = false;
+      return;
+    }
+    const H = BALANCE.heal.healpad;
+    let rate = 0;
+    for (const pad of this.wv.healpads) {
+      if (Math.hypot(pad.obj.x - P.x, pad.obj.y - P.y) > H.auraRadius) continue;
+      rate = pad.readyAt > this.clock.time ? H.auraFracPerSec * 0.25 : H.auraFracPerSec;
+      break;
+    }
+    this.nearHealpad = rate > 0;
+    if (rate <= 0) return;
+    const got = applyHeal(P.state, P.stats.maxHp, P.stats.maxHp * rate * dt);
+    this.padHealFxT -= dt;
+    if (got > 0 && this.padHealFxT <= 0) {
+      this.padHealFxT = 1.1;
+      this.fx.text(P.x, P.y - P.radius * 2.4, `+${Math.max(1, Math.round(got * 8))} máu`, '#7dffb0', 12);
+    }
   }
 
   private drink(): void {
@@ -1194,13 +1304,20 @@ export class GameScene extends Phaser.Scene {
 
   private onPlayerKill(n: Npc): void {
     const S = this.player.state;
+    const P = this.player;
     S.stats.kills++;
-    const r = killReward(this.player.stats, n.def, n.sc);
+    const r = killReward(P.stats, n.def, n.sc);
     const mat = addMaturity(S, r.maturity);
     this.gainExp(r.exp);
     this.fx.text(n.x, n.y - n.radius * 2 - 18, `+${r.exp} EXP`, '#ffe08a', 15);
     if (mat > 0.05) this.fx.text(n.x, n.y - n.radius * 2 - 34, `+${mat.toFixed(1)} 🌱`, '#9af07a', 13);
     else if (r.ratio < BALANCE.maturity.killMinPowerRatio) app.ui.toast('Con mồi quá yếu so với bạn — không giúp trưởng thành.', '');
+    const H = BALANCE.heal;
+    let healFrac = H.killFrac;
+    if (n.elite) healFrac += H.killEliteFrac;
+    if (n.def.guardian || n.def.unique) healFrac += H.killBossFrac;
+    const healed = applyHeal(S, P.stats.maxHp, P.stats.maxHp * healFrac);
+    if (healed > 0.5) this.fx.text(P.x, P.y - P.radius * 2.6, `+${Math.round(healed)} máu`, '#7dffb0', 14);
     if (n.elite) {
       S.stats.elites++;
       const coins = 3 + n.tier * 2;
@@ -1748,7 +1865,8 @@ export class GameScene extends Phaser.Scene {
     if (this.evo.active) status.push('Đang tiến hóa');
     if (P.inShelter) status.push('🏠 Nơi trú ẩn');
     if (P.rest.mode === 'sleeping') status.push(P.inShelter ? 'Đang ngủ' : 'Ngủ ngoài trời (nguy hiểm)');
-    else if (P.rest.mode === 'resting') status.push(P.rest.settled ? 'Đang nghỉ' : 'Nằm xuống...');
+    else if (P.rest.mode === 'resting') status.push(P.rest.settled ? 'Đang nghỉ · hồi máu' : 'Nằm xuống...');
+    if (this.nearHealpad) status.push('💊 Trụ hồi máu');
     if (inCombat) status.push('⚔ Chiến đấu');
     if (P.sprinting) status.push('Chạy nhanh');
     if (P.buff) status.push('Hiệu ứng kỹ năng');

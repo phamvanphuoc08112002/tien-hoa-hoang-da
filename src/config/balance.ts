@@ -56,10 +56,13 @@ export const BALANCE = {
     /** Rest only becomes effective after lying still this long (anti toggle-spam). */
     restSettleSec: 1.4,
     restToggleCooldownSec: 0.6,
-    hpRegenFracPerSec: 0.002,
+    /** Fraction of max HP regenerated per second when fed and out of combat. */
+    hpRegenFracPerSec: 0.0035,
     hpRegenMinNeeds: 55,
-    restHpMult: 2.5,
-    sleepHpMult: 4,
+    /** While resting/sleeping, regen starts at this lower hunger/thirst threshold. */
+    hpRegenRestMinNeeds: 28,
+    restHpMult: 4,
+    sleepHpMult: 6,
     fatigueGainPerSec: 100 / 960,
     fatigueSprintMult: 1.6,
     fatigueTiredLevel: 70,
@@ -196,12 +199,16 @@ export const BALANCE = {
     populationScale: 1.8,
     /** Pack members within this radius join a fight. */
     packAlertRadius: 340,
+    /** Prefer respawning a killed creature near its home after this fraction of respawnSec. */
+    siteRespawnMult: 1,
+    /** Defer site respawn while the player is closer than this. */
+    siteRespawnPlayerDist: 240,
   },
 
   resources: {
     maxCarcasses: 40,
-    maxParticles: 220,
-    maxDamageTexts: 30,
+    maxParticles: 360,
+    maxDamageTexts: 40,
   },
 
   inventory: {
@@ -217,6 +224,23 @@ export const BALANCE = {
     drinkAmount: 28,
     interactRange: 46,
     drinkRange: 40,
+  },
+
+  /** HP recovery sources beyond natural regen. */
+  heal: {
+    /** Fraction of max HP restored on a normal kill. */
+    killFrac: 0.07,
+    killEliteFrac: 0.05,
+    killBossFrac: 0.14,
+    healpad: {
+      /** Standing near a pillar regenerates this fraction of max HP / sec. */
+      auraRadius: 70,
+      auraFracPerSec: 0.045,
+      /** Press E for a larger burst; then the pillar cools down. */
+      burstFrac: 0.38,
+      /** Game-time seconds before a used pillar recharges. */
+      cooldownSec: 35,
+    },
   },
 
   autosaveIntervalSec: 45,

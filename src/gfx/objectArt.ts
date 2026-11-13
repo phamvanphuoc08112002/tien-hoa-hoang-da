@@ -293,6 +293,22 @@ export function portalArt(open: boolean): HTMLCanvasElement {
   });
 }
 
+/** Soft green healing pillar — walkable, glow rune + crystal tip. */
+export function healpadArt(): HTMLCanvasElement {
+  return sprite(18, 30, (g) => {
+    ellipse(g, 9, 28, 8, 2, '#3a4a3a');
+    rect(g, 4, 24, 10, 4, '#6a7a68');
+    rect(g, 4, 24, 10, 1, '#9ab094');
+    poly(g, [6, 24, 7, 8, 9, 4, 11, 8, 12, 24], '#7a9a88');
+    poly(g, [7, 24, 7.6, 9, 9, 6, 9, 24], '#a8d0b8');
+    rect(g, 8, 12, 2, 8, '#5ef0a0');
+    rect(g, 6, 15, 6, 2, '#5ef0a0');
+    ellipse(g, 9, 5, 3.2, 3.2, '#7dffb0');
+    ellipse(g, 8.2, 4.2, 1.4, 1.4, '#e8fff0');
+    ellipse(g, 9, 27, 5, 1.2, '#5ef0a0');
+  });
+}
+
 export function stoneArt(used: boolean): HTMLCanvasElement {
   return sprite(14, 26, (g) => {
     ellipse(g, 7, 24, 6, 1.6, '#4a463f');

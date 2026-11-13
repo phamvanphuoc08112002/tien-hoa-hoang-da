@@ -318,6 +318,19 @@ export function generateWorld(seed: string, realm = 0): WorldData {
   // Shrine near spawn region (reachable at form 1).
   placeStructure('shrine', ringPick(orng, spawn.tx, spawn.ty, 9, 22, (x, y) => freeSpot(true)(x, y) && !nearBlocker(x, y, 2)));
 
+  // Healing pillars: one close to spawn, then a few across biomes (walkable — not blocking).
+  const healSpots: { tx: number; ty: number }[] = [];
+  const placeHeal = (pick: { tx: number; ty: number } | null) => {
+    if (!pick || healSpots.some((s) => Math.hypot(s.tx - pick.tx, s.ty - pick.ty) < 28)) return;
+    if (placeStructure('healpad', pick)) healSpots.push(pick);
+  };
+  placeHeal(ringPick(orng, spawn.tx, spawn.ty, 4, 9, (x, y) => freeSpot(true)(x, y) && !nearBlocker(x, y, 1)));
+  placeHeal(randomTileWhere(orng, (x, y) => biomeSpot(BIOME.forest, true)(x, y) && farFromSpawn(30)(x, y)));
+  placeHeal(randomTileWhere(orng, (x, y) => biomeSpot(BIOME.lake, true)(x, y) && farFromSpawn(25)(x, y)));
+  placeHeal(randomTileWhere(orng, (x, y) => biomeSpot(BIOME.grass, true)(x, y) && farFromSpawn(40)(x, y)));
+  placeHeal(randomTileWhere(orng, (x, y) => biomeSpot(BIOME.rock, true, (i) => tiles[i] === TT.ROCK)(x, y) && farFromSpawn(35)(x, y)));
+  placeHeal(randomTileWhere(orng, (x, y) => biomeSpot(BIOME.swamp, true)(x, y) && farFromSpawn(40)(x, y)));
+
   // Exploration stones spread across sectors.
   const stoneSpots: { tx: number; ty: number }[] = [];
   for (let k = 0; k < 14; k++) {

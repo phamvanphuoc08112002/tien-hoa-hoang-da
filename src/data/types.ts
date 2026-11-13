@@ -285,6 +285,8 @@ export interface FoodDef {
   hunger: number;
   thirst: number;
   maturity: number;
+  /** Flat HP restored when eaten (scaled by diet efficiency). */
+  heal: number;
   /** Diet efficiency multiplier; 0 means inedible. */
   efficiency: Record<Diet, number>;
   carriable: boolean;

@@ -598,9 +598,22 @@ body.touch #hud:not(.hidden) .topright {
   gap: 10px;
   align-items: center;
 }
-#hud .coins {
-  color: var(--accent);
-  font-weight: 700;
+#hud .coin-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin: 2px 0 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 207, 74, 0.14);
+  border: 1px solid rgba(255, 207, 74, 0.65);
+  color: #ffd84a;
+  font-weight: 800;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 #hud .bottom {
   position: absolute;
@@ -611,6 +624,29 @@ body.touch #hud:not(.hidden) .topright {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  z-index: 5;
+}
+#hud .bag {
+  pointer-events: auto;
+  min-width: min(420px, 92vw);
+  padding: 6px 10px 8px;
+  border-color: rgba(255, 207, 74, 0.45);
+  background: rgba(14, 18, 26, 0.88);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+#hud .bag-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd84a;
+}
+#hud .bag-count {
+  color: #c8e2ff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 #hud .prompt {
   font-size: 15px;
@@ -686,11 +722,25 @@ kbd {
   border-color: #8aa0bc;
 }
 .inventory .slot {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
+  border-color: #6a7a94;
+}
+.inventory .slot.filled {
+  border-color: #ffcf4a;
+  background: rgba(255, 207, 74, 0.12);
+}
+.inventory .slot.empty {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.inventory .slot .empty-mark {
+  font-size: 18px;
+  color: #6a7a94;
+  line-height: 1;
 }
 .inventory .slot img {
-  width: 26px;
+  width: 28px;
   image-rendering: pixelated;
 }
 #hud .xpbars {
@@ -1251,6 +1301,20 @@ body.touch #hud .bottom {
   bottom: 6px;
   gap: 4px;
 }
+body.touch #hud .coin-badge {
+  font-size: 13px;
+  padding: 3px 9px;
+  margin: 1px 0 3px;
+}
+body.touch #hud .bag {
+  min-width: 0;
+  width: min(320px, 56vw);
+  padding: 5px 8px 6px;
+}
+body.touch #hud .bag-head {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
 body.touch #hud .xpbars {
   width: min(260px, 34vw);
 }
@@ -1258,9 +1322,14 @@ body.touch #hud .xpbars .vbar {
   grid-template-columns: 74px 1fr 40px;
   white-space: nowrap;
 }
+body.touch .inventory {
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 body.touch .inventory .slot {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
 }
 body.touch #hud .prompt {
   font-size: 13px;
@@ -1445,9 +1514,15 @@ body.touch #hud .debug {
   body.touch #hud .clock {
     font-size: 12.5px;
   }
+  body.touch #hud .bag {
+    width: min(420px, 48vw);
+  }
   body.touch .inventory .slot {
     width: 46px;
     height: 46px;
+  }
+  body.touch #hud .coin-badge {
+    font-size: 14px;
   }
   body.touch .toast {
     font-size: 13.5px;
@@ -1498,6 +1573,10 @@ body.touch #hud .debug {
   body.touch .tbtns {
     transform: scale(0.7);
   }
+  body.touch #hud .bag {
+    width: min(240px, 48vw);
+    padding: 3px 6px 4px;
+  }
   body.touch .inventory .slot {
     width: 34px;
     height: 34px;
@@ -1516,6 +1595,10 @@ body.touch #hud .debug {
     left: 8px;
     width: auto;
     align-items: flex-start;
+  }
+  body.touch #hud .bag {
+    width: min(300px, 46vw);
+    align-self: flex-start;
   }
   body.touch #hud .xpbars {
     width: min(280px, 42vw);
@@ -1570,6 +1653,9 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: 256px;
   }
+  body.touch #hud .bag {
+    width: min(92vw, 420px);
+  }
   body.touch #hud .xpbars {
     width: 76vw;
   }
@@ -1596,6 +1682,13 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 214px);
   }
+  body.touch #hud .bag {
+    width: min(88vw, 360px);
+  }
+  body.touch .inventory .slot {
+    width: 44px;
+    height: 44px;
+  }
   body.touch .tbtns,
   body.touch .joy-zone {
     margin-bottom: env(safe-area-inset-bottom, 0px);
@@ -1606,7 +1699,14 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: 300px;
   }
+  body.touch #hud .bag {
+    width: min(76vw, 460px);
+  }
   body.touch #hud .xpbars {
     width: min(76vw, 460px);
+  }
+  body.touch .inventory .slot {
+    width: 48px;
+    height: 48px;
   }
 }

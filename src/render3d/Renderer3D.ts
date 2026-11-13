@@ -50,7 +50,7 @@ const MOON = new THREE.Color('#a8bcff');
 const ANIMS = new Set(['idle', 'walk', 'attack', 'eat', 'rest', 'sleep', 'hurt', 'dead']);
 
 function yawFor(o: WorldObject): number {
-  if (o.kind === 'shelter' || o.kind === 'shrine' || o.kind === 'portal' || o.kind === 'stone') return 0;
+  if (o.kind === 'shelter' || o.kind === 'shrine' || o.kind === 'healpad' || o.kind === 'portal' || o.kind === 'stone') return 0;
   const h = Math.imul(o.id + 17, 2654435761) >>> 0;
   return (h / 4294967296) * Math.PI * 2;
 }

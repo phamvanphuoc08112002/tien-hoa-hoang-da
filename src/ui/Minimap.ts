@@ -37,6 +37,7 @@ export class Minimap {
     private world: WorldData,
     private shelters: WorldObject[],
     private shrine: WorldObject | null,
+    private healpads: WorldObject[] = [],
   ) {
     const W = world.w;
     const H = world.h;
@@ -100,6 +101,12 @@ export class Minimap {
     if (this.shrine) {
       g.fillStyle = '#ffcf4a';
       g.fillRect(this.shrine.tx - 2, this.shrine.ty - 2, 5, 5);
+    }
+    for (const h of this.healpads) {
+      g.fillStyle = '#5ef0a0';
+      g.fillRect(h.tx - 2, h.ty - 2, 4, 4);
+      g.fillStyle = '#e8fff0';
+      g.fillRect(h.tx - 1, h.ty - 1, 2, 2);
     }
     const pt = this.world.portal;
     if (pt) {

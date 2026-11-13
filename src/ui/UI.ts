@@ -88,8 +88,9 @@ const TOUCH_HELP: [string, string][] = [
   ['Q / R / T / Né', 'Chiêu thức và né tránh (nút tròn bên phải)'],
   ['Nhân vật', 'Chỉ số, chiêu thức, gắn chiêu và tiến hóa'],
   ['Chạy', 'Khóa chạy nhanh (không cần đẩy hết cần)'],
-  ['Dùng', 'Ăn / uống / tương tác — nút sáng khi có việc gần đó'],
-  ['Ô túi', 'Chạm để ăn đồ mang theo'],
+  ['Dùng', 'Ăn / uống / trụ hồi máu — nút sáng khi có việc gần đó'],
+  ['Ô túi', 'Chạm để ăn đồ mang theo (ăn cũng hồi máu)'],
+  ['Nghỉ', 'Nằm nghỉ để hồi máu từng chút'],
   ['⛶', 'Toàn màn hình'],
 ];
 
@@ -426,6 +427,7 @@ export class UI {
     this.hud.innerHTML = `
       <div class="vitals hud-box">
         <div class="name"><span data-e="name"></span><span data-e="lv"></span></div>
+        <div class="coin-badge" data-e="coins" title="Tiền xu">🪙 0</div>
         ${['hp:Máu:#e0524a', 'hunger:Độ no:#ff9a3a', 'thirst:Nước:#4aa8ff', 'stamina:Thể lực:#c8e05a', 'fatigue:Mệt mỏi:#b07aff']
           .map((s) => {
             const [k, l, c] = s.split(':');
@@ -438,14 +440,20 @@ export class UI {
       <div class="topright">
         <div class="hud-box minimap-wrap" data-e="minimap"></div>
         <div class="hud-box clock"><span data-e="clock"></span><span data-e="weather"></span></div>
-        <div class="hud-box clock"><span data-e="biome"></span><span class="coins" data-e="coins"></span></div>
+        <div class="hud-box clock"><span data-e="biome"></span></div>
       </div>
       <div class="warnings" data-e="warnings"></div>
       <div class="toasts" data-e="toasts"></div>
       <div class="evo hud-box hidden" data-e="evo"></div>
       <div class="bottom">
         <div class="prompt hidden" data-e="prompt"></div>
-        <div class="inventory" data-e="inv"></div>
+        <div class="bag hud-box">
+          <div class="bag-head">
+            <span class="bag-title">Túi đồ ăn</span>
+            <span class="bag-count" data-e="inv-count">0/0</span>
+          </div>
+          <div class="inventory" data-e="inv"></div>
+        </div>
         <div class="skillbar" data-e="skills"></div>
         <div class="xpbars">
           <div class="vbar"><span>EXP</span><div class="track"><div class="fill" data-e="exp" style="background:#ffd84a"></div></div><span class="val" data-e="exp-v"></span></div>
@@ -475,7 +483,7 @@ export class UI {
     const cx = box.left + box.width / 2;
     let top = 0;
     let bottom = box.height;
-    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
+    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bag, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0 || r.right < cx - 40 || r.left > cx + 40) return;
       const mid = (r.top + r.bottom) / 2 - box.top;
@@ -526,13 +534,20 @@ export class UI {
     E.weather.textContent = `${WEATHER_ICON[d.weather]} ${WEATHER_NAMES[d.weather]}`;
     E.biome.textContent = d.biome;
     E.coins.textContent = `🪙 ${d.coins}`;
+    const filled = d.inventory.filter(Boolean).length;
+    E['inv-count'].textContent = `${filled}/${d.inventory.length}`;
     E.warnings.innerHTML = d.warnings.map((w) => `<div class="warning">${esc(w)}</div>`).join('');
 
     const invKey = d.inventory.join(',');
     if (invKey !== this.lastInv) {
       this.lastInv = invKey;
       E.inv.innerHTML = d.inventory
-        .map((it, i) => `<div class="slot" title="${it ? esc(FOODS[it].name) : 'Trống'}"><span class="key">${i + 1}</span>${it ? `<img src="${foodIconUrl(it)}" alt="">` : ''}</div>`)
+        .map((it, i) => {
+          const name = it ? FOODS[it].name : 'Trống';
+          return `<div class="slot ${it ? 'filled' : 'empty'}" title="${esc(name)}"><span class="key">${i + 1}</span>${
+            it ? `<img src="${foodIconUrl(it)}" alt="${esc(name)}">` : '<span class="empty-mark">·</span>'
+          }</div>`;
+        })
         .join('');
     }
     const skKey = d.skills.map((s) => `${s.key}${s.name}${s.locked}`).join('|');
@@ -725,9 +740,9 @@ export class UI {
       ['Chuột trái', 'Tấn công về hướng con trỏ'],
       ['Q / R / T', 'Chiêu thức (gắn chiêu trong bảng Tab)'],
       ['Space', 'Né tránh'],
-      ['E', 'Ăn / uống / nhặt / tương tác'],
-      ['F', 'Nằm nghỉ (ngủ khi mệt)'],
-      ['1-6', 'Ăn đồ trong túi'],
+      ['E', 'Ăn / uống / nhặt / trụ hồi máu'],
+      ['F', 'Nằm nghỉ (hồi máu dần, ngủ khi mệt)'],
+      ['1-6', 'Ăn đồ trong túi (ăn cũng hồi máu)'],
       ['M', 'Đặt dấu bản đồ (khi đã mở)'],
       ['Tab', 'Nhân vật & tiến hóa'],
       ['Esc', 'Tạm dừng'],

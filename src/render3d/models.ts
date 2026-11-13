@@ -157,6 +157,19 @@ function shrine(): StaticModel {
   return { solid: merge(p), glow: merge(glow), shadow: true };
 }
 
+function healpad(): StaticModel {
+  const p: Geo[] = [
+    piece(new THREE.CylinderGeometry(14, 16, 5, 8), '#6a7a68', mat(0, 2.5, 0)),
+    piece(new THREE.CylinderGeometry(5, 7, 28, 6), '#7a9a88', mat(0, 18, 0)),
+  ];
+  const glow: Geo[] = [
+    piece(new THREE.OctahedronGeometry(6, 0), '#7dffb0', mat(0, 38, 0)),
+    piece(new THREE.BoxGeometry(2.5, 14, 1), '#5ef0a0', mat(0, 20, 6)),
+    piece(new THREE.BoxGeometry(10, 2.5, 1), '#5ef0a0', mat(0, 22, 6)),
+  ];
+  return { solid: merge(p), glow: merge(glow), shadow: true };
+}
+
 function portal(open: boolean): StaticModel {
   const p: Geo[] = [];
   for (const sx of [-1, 1]) {
@@ -293,6 +306,7 @@ export function modelFor(key: string): StaticModel | null {
   else if (key.startsWith('boulder')) m = boulder(v);
   else if (key.startsWith('shelter')) m = shelter(v);
   else if (key === 'shrine') m = shrine();
+  else if (key === 'healpad') m = healpad();
   else if (key === 'portal_off' || key === 'portal_on') m = portal(key === 'portal_on');
   else if (key === 'stone_new' || key === 'stone_used') m = stone(key === 'stone_used');
   else if (key === 'coin') m = coin();

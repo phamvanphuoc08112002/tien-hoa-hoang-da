@@ -10,13 +10,22 @@ export interface EatResult {
   hunger: number;
   thirst: number;
   maturity: number;
+  heal: number;
+}
+
+/** Heals up to `amount` without reviving a dead creature. Returns HP actually gained. */
+export function applyHeal(s: PlayerState, maxHp: number, amount: number): number {
+  if (s.hp <= 0 || amount <= 0 || s.hp >= maxHp) return 0;
+  const before = s.hp;
+  s.hp = Math.min(maxHp, s.hp + amount);
+  return s.hp - before;
 }
 
 /** Applies eating a food to the player. Pure state mutation; caller handles resource depletion. */
-export function eatFood(s: PlayerState, diet: Diet, foodId: string): EatResult {
+export function eatFood(s: PlayerState, diet: Diet, foodId: string, maxHp = 0): EatResult {
   const food = FOODS[foodId];
   const eff = dietEfficiency(diet, foodId);
-  if (!food || eff <= 0) return { ok: false, reason: 'Không ăn được thứ này', hunger: 0, thirst: 0, maturity: 0 };
+  if (!food || eff <= 0) return { ok: false, reason: 'Không ăn được thứ này', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
   const m = BALANCE.maturity;
   const hungerBefore = s.hunger;
   const h0 = s.hunger;
@@ -30,8 +39,9 @@ export function eatFood(s: PlayerState, diet: Diet, foodId: string): EatResult {
     growth = addMaturity(s, food.maturity * eff * dim);
     s.satiation += 1;
   }
+  const heal = maxHp > 0 ? applyHeal(s, maxHp, food.heal * eff) : 0;
   s.stats.foodEaten++;
-  return { ok: true, hunger: s.hunger - h0, thirst: s.thirst - t0, maturity: growth };
+  return { ok: true, hunger: s.hunger - h0, thirst: s.thirst - t0, maturity: growth, heal };
 }
 
 export function drinkWater(s: PlayerState): number {
@@ -59,11 +69,13 @@ export function hasInventorySpace(s: PlayerState): boolean {
 }
 
 /** Eats the food in a slot; consumes it only if eating succeeded. */
-export function eatFromSlot(s: PlayerState, diet: Diet, slot: number): EatResult {
+export function eatFromSlot(s: PlayerState, diet: Diet, slot: number, maxHp = 0): EatResult {
   const id = s.inventory[slot];
-  if (!id) return { ok: false, reason: 'Ô trống', hunger: 0, thirst: 0, maturity: 0 };
-  if (s.hunger >= 99.5) return { ok: false, reason: 'Đã no', hunger: 0, thirst: 0, maturity: 0 };
-  const r = eatFood(s, diet, id);
+  if (!id) return { ok: false, reason: 'Ô trống', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
+  const food = FOODS[id];
+  const canHeal = !!food && food.heal > 0 && maxHp > 0 && s.hp > 0 && s.hp < maxHp;
+  if (s.hunger >= 99.5 && !canHeal) return { ok: false, reason: 'Đã no', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
+  const r = eatFood(s, diet, id, maxHp);
   if (r.ok) s.inventory[slot] = null;
   return r;
 }

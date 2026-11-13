@@ -225,6 +225,9 @@ export class NpcManager {
   bossDefeatedAt: Record<string, number> = {};
   /** Called when an NPC finishes dying (for UI cleanup). */
   onRemoved: ((n: Npc) => void) | null = null;
+  /** Fired when a killed creature respawns at its home. */
+  onRespawned: ((n: Npc) => void) | null = null;
+  private pendingSpawns: { def: NpcDef; x: number; y: number; at: number; affix: EliteAffix | null }[] = [];
   /** Called when a boss enrages. */
   onEnrage: ((n: Npc) => void) | null = null;
 
@@ -407,6 +410,18 @@ export class NpcManager {
     n.play('dead');
     this.fx.burst(n.x, n.y - n.radius, 'blood', 8, { speed: 110, life: 0.5, tint: 0xd04040, gravity: 200 });
     if (n.def.unique) this.bossDefeatedAt[n.def.id] = this.env.now();
+    // Gate guardians stay gone until summoned again; everything else schedules a home respawn.
+    if (!n.def.guardian) {
+      const delay = n.def.respawnSec * BALANCE.npc.siteRespawnMult;
+      this.pendingSpawns.push({
+        def: n.def,
+        x: n.homeX,
+        y: n.homeY,
+        at: this.env.now() + delay,
+        affix: n.affix,
+      });
+      this.nextAllowed[n.def.id] = Math.max(this.nextAllowed[n.def.id] ?? 0, this.env.now() + delay * 0.75);
+    }
     this.wv.addCarcass(n.x, n.y, n.def.drops + (n.elite ? 2 : 0), this.env.now());
     const carcass = this.wv.carcasses[this.wv.carcasses.length - 1] ?? null;
     if (killer && !killer.isPlayer) {
@@ -457,10 +472,52 @@ export class NpcManager {
       if (visible && n.alive) this.render(n, dt);
     }
 
+    this.flushPendingSpawns();
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = BALANCE.npc.spawnCheckIntervalSec;
       this.maintainPopulation();
+    }
+  }
+
+  /** Respawns killed creatures near their home after `respawnSec`. */
+  private flushPendingSpawns(): void {
+    if (this.pendingSpawns.length === 0) return;
+    const now = this.env.now();
+    const P = this.env.player;
+    const minDist = BALANCE.npc.siteRespawnPlayerDist;
+    for (let i = this.pendingSpawns.length - 1; i >= 0; i--) {
+      const p = this.pendingSpawns[i];
+      if (p.at > now) continue;
+      if (p.def.unique && this.npcs.some((n) => n.alive && n.def.id === p.def.id)) {
+        this.pendingSpawns.splice(i, 1);
+        continue;
+      }
+      if (p.def.guardian) {
+        this.pendingSpawns.splice(i, 1);
+        continue;
+      }
+      if (Math.hypot(p.x - P.x, p.y - P.y) < minDist) {
+        p.at = now + 6;
+        continue;
+      }
+      if (!isPositionFree(this.wv.data, p.x, p.y, p.def.radius, this.canClimbDef(p.def))) {
+        const alt = this.pickSpawn(p.def, minDist, false);
+        if (!alt) {
+          p.at = now + 8;
+          continue;
+        }
+        p.x = alt.x;
+        p.y = alt.y;
+      }
+      const n = this.spawn(p.def, p.x, p.y, p.def.unique ? null : p.affix);
+      n.homeX = p.x;
+      n.homeY = p.y;
+      if (p.def.unique) delete this.bossDefeatedAt[p.def.id];
+      this.fx.burst(n.x, n.y - n.radius, 'spark', 14, { speed: 90, life: 0.55, tint: 0x9ad8ff });
+      this.fx.pulse(n.x, n.y, 0x9ad8ff, 6, n.radius * 2.4, 0.4, 0.25);
+      this.onRespawned?.(n);
+      this.pendingSpawns.splice(i, 1);
     }
   }
 
@@ -473,6 +530,8 @@ export class NpcManager {
       const target = this.targetPopulation(def);
       if (alive >= target) continue;
       if (this.bossDown(def)) continue;
+      // Site respawn already queued — don't double-spawn from population fill.
+      if (this.pendingSpawns.some((p) => p.def.id === def.id)) continue;
       if ((this.nextAllowed[def.id] ?? 0) > now) continue;
       const p = this.pickSpawn(def, BALANCE.npc.spawnMinPlayerDist, true);
       if (!p) continue;
@@ -763,6 +822,10 @@ export class NpcManager {
       if (n.target && n.target.alive && n.windup.kind !== 'heavy' && n.windup.kind !== 'ult') {
         n.windup.dir = Math.atan2(n.target.y - n.y, n.target.x - n.x);
       }
+      // Building earthquake while a boss ultimate charges.
+      if (n.windup.kind === 'ult' && Math.random() < dt * 7) {
+        this.quake(n, { duration: 70, intensity: 0.0028, dust: Math.random() < 0.35, audio: false });
+      }
       if (n.windup.t <= 0) this.releaseAttack(n);
     } else {
       this.behave(n, dt);
@@ -1020,11 +1083,40 @@ export class NpcManager {
     return BALANCE.threat.enrageCd;
   }
 
+  /**
+   * Screen shake + dust rings for boss heavy/ult impacts.
+   * Intensity falls off with distance so far-away casts don't rattle the whole fight.
+   */
+  private quake(
+    n: Npc,
+    opts: { duration: number; intensity: number; range?: number; dust?: boolean; audio?: boolean },
+  ): void {
+    const maxR = opts.range ?? 920;
+    const dist = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y);
+    if (dist > maxR) return;
+    const falloff = 1 - dist / maxR;
+    let mult = 0.8;
+    if (n.def.id === 'hu_khong_than') mult = 1.35;
+    else if (n.def.guardian) mult = 1.2;
+    else if (n.def.unique) mult = 1.1;
+    if (n.enraged) mult *= 1.12;
+    const intensity = opts.intensity * (0.4 + 0.6 * falloff) * mult;
+    this.scene.cameras.main.shake(opts.duration, intensity);
+    if (opts.dust !== false) {
+      this.fx.burst(n.x, n.y + 4, 'dust', 20, { speed: 200, life: 0.7, gravity: 180, scale: 1.2 });
+      this.fx.burst(n.x, n.y, 'spark', 8, { speed: 110, life: 0.4, tint: 0xffd06a });
+      this.fx.pulse(n.x, n.y, 0xc4a574, 16, 70 + intensity * 3500, 0.5, 0.22);
+      this.fx.ring(n.x, n.y, 0x8a7050, 18, 90 + intensity * 4500, 0.55, 6);
+      this.fx.ring(n.x, n.y, 0xffe0a0, 10, 50 + intensity * 2200, 0.35, 3);
+    }
+    if (opts.audio !== false) this.env.audio.play('hit');
+  }
+
   private startWindup(n: Npc, kind: WindupKind, dir: number): void {
     const H = n.def.heavy;
     const R = n.def.ranged;
     const U = n.def.ult;
-    const nearPlayer = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 500;
+    const nearPlayer = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 560;
     if (kind === 'ult' && U) {
       n.windup = { kind, t: U.windupSec, dir };
       const telKind = U.kind === 'lunge' ? 'lunge' : 'slam';
@@ -1039,11 +1131,14 @@ export class NpcManager {
         t: U.windupSec,
         total: U.windupSec,
       });
-      this.fx.text(n.x, n.y - n.radius * 3.2, U.name, '#ffd06a', 14);
+      this.fx.text(n.x, n.y - n.radius * 3.2, U.name, '#ffd06a', 15);
+      // Precursor rumble while the boss winds up.
+      this.quake(n, { duration: 160, intensity: 0.005, dust: true, audio: false });
       if (nearPlayer) this.env.audio.play('telegraph');
     } else if (kind === 'heavy' && H) {
       n.windup = { kind, t: H.windupSec, dir };
       this.combat.telegraph({ ownerUid: n.uid, kind: H.kind, x: n.x, y: n.y, dir, range: H.range, radius: H.radius, t: H.windupSec, total: H.windupSec });
+      if (n.def.unique || n.def.guardian) this.quake(n, { duration: 120, intensity: 0.0035, dust: false, audio: false });
       if (nearPlayer) this.env.audio.play('telegraph');
     } else if (kind === 'ranged' && R) {
       n.windup = { kind, t: R.windupSec, dir };
@@ -1071,17 +1166,23 @@ export class NpcManager {
       if (H.kind === 'slam') {
         this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, 0.12, false, 0xff6a3a, opts);
         this.fx.ring(n.x, n.y, 0xffa060, 10, H.radius, 0.45, 4);
-        this.fx.burst(n.x, n.y, 'dust', 14, { speed: 160, life: 0.6 });
-        if (Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 600) {
-          this.scene.cameras.main.shake(180, 0.006);
-          this.env.audio.play('hit');
-        }
+        this.fx.burst(n.x, n.y, 'dust', 18, { speed: 180, life: 0.65, gravity: 160 });
+        this.quake(n, {
+          duration: n.def.unique || n.def.guardian ? 320 : 200,
+          intensity: n.def.unique || n.def.guardian ? 0.012 : 0.007,
+        });
       } else {
         const dur = 0.28;
         const sp = H.range / dur;
         n.dash = { vx: Math.cos(w.dir) * sp, vy: Math.sin(w.dir) * sp, t: dur };
         this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, dur, true, 0xff6a3a, opts);
-        this.fx.burst(n.x, n.y, 'dust', 6, { speed: 80, life: 0.4 });
+        this.fx.burst(n.x, n.y, 'dust', 10, { speed: 100, life: 0.45 });
+        if (n.def.unique || n.def.guardian) {
+          this.quake(n, { duration: 220, intensity: 0.008, dust: true });
+          this.scene.time.delayedCall(dur * 1000, () => {
+            if (n.alive) this.quake(n, { duration: 180, intensity: 0.007, audio: false });
+          });
+        }
       }
     } else if (w.kind === 'ranged' && n.def.ranged) {
       const R = n.def.ranged;
@@ -1106,7 +1207,6 @@ export class NpcManager {
     n.ultCd = U.cooldownSec * n.sc.atkCdMult;
     n.atkCd = 0.9;
     const color = U.color ?? 0xffd06a;
-    const near = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 700;
     if (U.kind === 'slam' || U.kind === 'nova') {
       const waves = Math.max(1, U.waves ?? (U.kind === 'nova' ? 2 : 1));
       for (let i = 0; i < waves; i++) {
@@ -1115,28 +1215,37 @@ export class NpcManager {
         const fire = () => {
           if (!n.alive) return;
           this.combat.circle(n, n.x, n.y, rad, p, U.dmgMult * (1 - i * 0.12), U.knockback, 0.14, false, color, opts);
-          this.fx.ring(n.x, n.y, color, 12 + i * 4, rad, 0.5, 5);
-          this.fx.burst(n.x, n.y, 'spark', 10 + i * 4, { speed: 140, life: 0.55, tint: color });
+          this.fx.ring(n.x, n.y, color, 12 + i * 4, rad, 0.55, 5);
+          this.fx.burst(n.x, n.y, 'spark', 12 + i * 5, { speed: 160, life: 0.55, tint: color });
+          this.fx.burst(n.x, n.y + 6, 'dust', 16, { speed: 190, life: 0.65, gravity: 200 });
+          this.quake(n, {
+            duration: 280 + i * 40,
+            intensity: 0.014 + i * 0.003,
+            audio: i === 0,
+          });
         };
         if (delay <= 0) fire();
         else this.scene.time.delayedCall(delay, fire);
-      }
-      if (near) {
-        this.scene.cameras.main.shake(260, 0.01);
-        this.env.audio.play('hit');
       }
     } else if (U.kind === 'lunge') {
       const dur = 0.32;
       const sp = U.range / dur;
       n.dash = { vx: Math.cos(dir) * sp, vy: Math.sin(dir) * sp, t: dur };
       this.combat.circle(n, n.x, n.y, U.radius, p, U.dmgMult, U.knockback, dur, true, color, opts);
-      this.fx.burst(n.x, n.y, 'dust', 10, { speed: 120, life: 0.5, tint: color });
+      this.fx.burst(n.x, n.y, 'dust', 14, { speed: 140, life: 0.55, tint: color });
+      this.quake(n, { duration: 200, intensity: 0.009, dust: true });
+      this.scene.time.delayedCall(dur * 1000, () => {
+        if (!n.alive) return;
+        this.quake(n, { duration: 320, intensity: 0.015 });
+        this.fx.burst(n.x, n.y, 'dust', 22, { speed: 210, life: 0.7, gravity: 180 });
+      });
     } else {
       // Barrage: ring + aimed volleys in waves.
       const waves = Math.max(1, U.waves ?? 2);
       const count = Math.max(4, (U.count ?? 8) + (n.enraged ? 3 : 0));
       const speed = U.speed ?? 400;
       const spread = (((U.spreadDeg ?? 360) * Math.PI) / 180);
+      this.quake(n, { duration: 180, intensity: 0.007, dust: true, audio: false });
       for (let wave = 0; wave < waves; wave++) {
         const delay = wave * 320;
         this.scene.time.delayedCall(delay, () => {
@@ -1163,10 +1272,10 @@ export class NpcManager {
               { status: U.status ?? null },
             );
           }
-          this.fx.burst(n.x, n.y - n.radius, 'spark', 12, { speed: 90, life: 0.45, tint: color });
+          this.fx.burst(n.x, n.y - n.radius, 'spark', 14, { speed: 100, life: 0.45, tint: color });
+          this.quake(n, { duration: 200, intensity: 0.008 + wave * 0.002, dust: wave === 0, audio: wave === 0 });
         });
       }
-      if (near) this.env.audio.play('telegraph');
     }
   }
 

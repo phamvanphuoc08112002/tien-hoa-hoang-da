@@ -431,7 +431,15 @@ export class Player implements PlayerInfo {
     this.stam.spend(this.state, cost);
     this.cds.start(id, sk.cooldownSec);
     this.action = { kind: 'skill', t: sk.windupSec + 0.12, total: sk.windupSec + 0.12, dir: aim, moveMult: sk.kind === 'dash' ? 0 : 0.2, onDone: () => {} };
-    env.fx.burst(this.x, this.y - this.radius, sk.particle as ParticleKind, 6, { speed: 50, life: 0.4, tint: sk.color });
+    // Charge telegraph so the cast reads before the hit lands.
+    env.fx.pulse(this.x, this.y, sk.color, this.radius * 0.6, this.radius * 2.4, Math.max(0.18, sk.windupSec), 0.22);
+    env.fx.burst(this.x, this.y - this.radius, sk.particle as ParticleKind, 10, {
+      speed: 70,
+      life: 0.45,
+      tint: sk.color,
+      additive: true,
+      scale: 1.15,
+    });
     this.pendingFire = { t: sk.windupSec, fn: () => this.fireSkill(sk, aim, env) };
   }
 
@@ -441,20 +449,33 @@ export class Player implements PlayerInfo {
     env.audio.play('skill');
     this.onSkillCast?.(sk);
     const pk = sk.particle as ParticleKind;
+    env.fx.skillName(this.x, this.y - this.radius * 3.4, sk.name, sk.color);
     switch (sk.kind) {
       case 'dash': {
         const speed = sk.speed ?? 560;
+        const x0 = this.x;
+        const y0 = this.y;
         this.dashT = sk.range / speed;
         this.dashVx = Math.cos(aim) * speed;
         this.dashVy = Math.sin(aim) * speed;
         this.iframes = Math.max(this.iframes, this.dashT * 0.7);
         env.combat.circle(this, this.x, this.y, sk.radius + this.radius * 0.5, p, sk.dmgMult, sk.knockback, this.dashT + 0.05, true, sk.color, opts);
-        env.fx.burst(this.x, this.y, pk, 10, { speed: 90, life: 0.5, tint: sk.color });
+        const x1 = x0 + Math.cos(aim) * sk.range;
+        const y1 = y0 + Math.sin(aim) * sk.range;
+        env.fx.beam(x0, y0, x1, y1, sk.color, 0.4, 16);
+        env.fx.pulse(x0, y0, sk.color, 8, this.radius * 2.2, 0.35, 0.3);
+        env.fx.burst(x0, y0, pk, 18, { speed: 140, life: 0.55, tint: sk.color, additive: true, scale: 1.2, dir: aim, spread: 1.2 });
+        env.fx.burst(x0, y0, 'spark', 10, { speed: 180, life: 0.35, tint: 0xffffff, additive: true, dir: aim, spread: 0.8 });
         break;
       }
       case 'projectile': {
         const n = sk.count ?? 1;
         const spread = ((sk.spreadDeg ?? 0) * Math.PI) / 180;
+        const mx = this.x + Math.cos(aim) * (this.radius + 8);
+        const my = this.y - this.radius * 0.6 + Math.sin(aim) * (this.radius + 8);
+        env.fx.pulse(mx, my, sk.color, 4, 28, 0.28, 0.35);
+        env.fx.burst(mx, my, pk, 14, { speed: 160, life: 0.4, tint: sk.color, additive: true, dir: aim, spread: 0.9, scale: 1.2 });
+        env.fx.beam(this.x, this.y - this.radius * 0.4, mx + Math.cos(aim) * 36, my + Math.sin(aim) * 36, sk.color, 0.22, 12);
         for (let i = 0; i < n; i++) {
           const a = n === 1 ? aim : aim - spread + (2 * spread * i) / (n - 1);
           env.combat.projectile(this, this.x + Math.cos(a) * this.radius, this.y - this.radius * 0.6 + Math.sin(a) * this.radius, a, sk.speed ?? 500, sk.range, sk.radius, p, sk.dmgMult, sk.knockback, sk.color, pk, opts);
@@ -462,24 +483,32 @@ export class Player implements PlayerInfo {
         break;
       }
       case 'cone': {
-        env.combat.arc(this, aim, sk.arcDeg ?? 60, sk.range, p, sk.dmgMult, sk.knockback, 0.25, sk.color, opts);
-        env.fx.burst(this.x + Math.cos(aim) * 20, this.y - 8 + Math.sin(aim) * 20, pk, 26, {
-          speed: sk.range * 2.2,
-          life: 0.45,
+        env.combat.arc(this, aim, sk.arcDeg ?? 60, sk.range, p, sk.dmgMult, sk.knockback, 0.32, sk.color, opts);
+        const tipX = this.x + Math.cos(aim) * sk.range * 0.55;
+        const tipY = this.y - 8 + Math.sin(aim) * sk.range * 0.55;
+        env.fx.burst(this.x + Math.cos(aim) * 16, this.y - 8 + Math.sin(aim) * 16, pk, 36, {
+          speed: sk.range * 2.6,
+          life: 0.5,
           dir: aim,
           spread: ((sk.arcDeg ?? 60) * Math.PI) / 180,
           tint: sk.color,
           additive: true,
+          scale: 1.25,
         });
+        env.fx.burst(tipX, tipY, 'spark', 12, { speed: 90, life: 0.4, tint: 0xffffff, additive: true, dir: aim, spread: 1.1 });
+        env.fx.beam(this.x, this.y, tipX, tipY, sk.color, 0.3, 14);
+        env.fx.pulse(this.x, this.y, sk.color, 6, sk.range * 0.45, 0.28, 0.18);
         break;
       }
       case 'nova': {
-        env.combat.circle(this, this.x, this.y, sk.radius, p, sk.dmgMult, sk.knockback, 0.15, false, sk.color, opts);
-        if (sk.knockback < 0) env.fx.ring(this.x, this.y, sk.color, sk.radius, 10, 0.55, 5);
-        env.fx.ring(this.x, this.y, sk.color, 10, sk.radius, 0.45, 5);
-        env.fx.ring(this.x, this.y, 0xffffff, 6, sk.radius * 0.7, 0.35, 2);
-        env.fx.burst(this.x, this.y, pk, 24, { speed: sk.radius * 2.5, life: 0.5, tint: sk.color });
-        this.scene.cameras.main.shake(150, 0.005);
+        env.combat.circle(this, this.x, this.y, sk.radius, p, sk.dmgMult, sk.knockback, 0.22, false, sk.color, opts);
+        if (sk.knockback < 0) env.fx.ring(this.x, this.y, sk.color, sk.radius, 10, 0.65, 6, 0.2);
+        env.fx.pulse(this.x, this.y, sk.color, 12, sk.radius, 0.55, 0.32);
+        env.fx.pulse(this.x, this.y, 0xffffff, 8, sk.radius * 0.72, 0.4, 0.18);
+        env.fx.ring(this.x, this.y, sk.color, 10, sk.radius * 1.08, 0.55, 6);
+        env.fx.burst(this.x, this.y, pk, 36, { speed: sk.radius * 2.8, life: 0.6, tint: sk.color, additive: true, scale: 1.35 });
+        env.fx.burst(this.x, this.y - 8, 'spark', 16, { speed: sk.radius * 1.6, life: 0.45, tint: 0xffffff, additive: true });
+        this.scene.cameras.main.shake(180, 0.007);
         break;
       }
       case 'buff': {
@@ -498,8 +527,10 @@ export class Player implements PlayerInfo {
           this.status.clear();
           this.stunT = 0;
         }
-        env.fx.ring(this.x, this.y, sk.color, 4, 50, 0.5, 4);
-        env.fx.burst(this.x, this.y - 10, pk, 14, { speed: 60, life: 0.7, tint: sk.color });
+        env.fx.pulse(this.x, this.y, sk.color, 6, 70, 0.65, 0.28);
+        env.fx.ring(this.x, this.y, 0xffffff, 4, 46, 0.45, 3);
+        env.fx.burst(this.x, this.y - 10, pk, 22, { speed: 90, life: 0.85, tint: sk.color, additive: true, up: 40, scale: 1.2 });
+        env.fx.burst(this.x, this.y - this.radius, 'star', 10, { speed: 50, life: 0.9, tint: sk.color, up: 70, additive: true });
         break;
       }
     }

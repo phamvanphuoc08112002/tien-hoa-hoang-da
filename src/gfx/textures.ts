@@ -21,6 +21,7 @@ import {
   portalArt,
   shadowArt,
   shelterArt,
+  healpadArt,
   shrineArt,
   stoneArt,
   treeArt,
@@ -126,6 +127,7 @@ export function registerAllTextures(scene: Phaser.Scene): void {
   addImage(scene, 'crystal_full', crystalArt(false));
   addImage(scene, 'crystal_empty', crystalArt(true));
   addImage(scene, 'shrine', shrineArt());
+  addImage(scene, 'healpad', healpadArt());
   addImage(scene, 'stone_new', stoneArt(false));
   addImage(scene, 'stone_used', stoneArt(true));
   addImage(scene, 'portal_off', portalArt(false));

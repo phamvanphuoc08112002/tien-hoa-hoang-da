@@ -60,6 +60,7 @@ interface Projectile {
   power: number;
   sprite: Phaser.GameObjects.Image;
   particle: ParticleKind;
+  tint: number;
 }
 
 export interface Telegraph {
@@ -111,7 +112,13 @@ export class CombatSystem {
   }
 
   projectile(owner: Creature, x: number, y: number, dir: number, speed: number, range: number, r: number, power: number, mult: number, knockback: number, tint: number, particle: ParticleKind, opts: HitOpts = {}): void {
-    const sprite = this.scene.add.image(x, y, 'p_bubble').setScale(Math.max(1.2, r / 5)).setTint(tint).setDepth(9400);
+    const sprite = this.scene.add
+      .image(x, y, 'p_bubble')
+      .setScale(Math.max(1.8, r / 3.6))
+      .setTint(tint)
+      .setDepth(9400)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.95);
     this.projectiles.push({
       inst: new HitInstance(owner.uid, mult, knockback, opts.status ?? null, opts.tag ?? null),
       owner,
@@ -124,6 +131,7 @@ export class CombatSystem {
       power,
       sprite,
       particle,
+      tint,
     });
   }
 
@@ -191,9 +199,20 @@ export class CombatSystem {
           break;
         }
       }
-      if (Math.random() < 0.5) this.fx.burst(p.x, p.y, p.particle, 1, { speed: 20, life: 0.3 });
+      // Dense colored trail so projectiles stay readable in 2D/3D.
+      if (Math.random() < 0.85) {
+        this.fx.burst(p.x, p.y, p.particle, 2, {
+          speed: 28,
+          life: 0.35,
+          tint: p.tint,
+          additive: true,
+          scale: 1.1,
+        });
+      }
       if (dead) {
-        this.fx.burst(p.x, p.y, p.particle, 6, { speed: 90, life: 0.4 });
+        this.fx.burst(p.x, p.y, p.particle, 12, { speed: 130, life: 0.5, tint: p.tint, additive: true, scale: 1.3 });
+        this.fx.burst(p.x, p.y, 'spark', 8, { speed: 150, life: 0.35, tint: 0xffffff, additive: true });
+        this.fx.pulse(p.x, p.y, p.tint, 4, Math.max(22, p.r * 3), 0.28, 0.3);
         p.sprite.destroy();
         this.projectiles.splice(i, 1);
       }
@@ -222,7 +241,13 @@ export class CombatSystem {
       const info = STATUS_INFO[st.kind];
       this.fx.text(target.x, target.y - target.radius * 2 - 20, `${info.icon} ${info.name}`, '#ffffff', 12);
     }
-    this.fx.burst(target.x, target.y - target.radius * 0.6, 'star', 4, { speed: 120, life: 0.25 });
+    this.fx.burst(target.x, target.y - target.radius * 0.6, 'star', 8, {
+      speed: 150,
+      life: 0.35,
+      additive: true,
+      scale: 1.15,
+    });
+    this.fx.pulse(target.x, target.y, target.isPlayer ? 0xff6a6a : 0xffe08a, 4, target.radius * 1.6, 0.2, 0.22);
     this.fx.text(target.x + (Math.random() - 0.5) * 10, target.y - target.radius * 2 - 6, String(dmg), target.isPlayer ? '#ff6a6a' : '#fff3a0', target.isPlayer ? 18 : 15);
     this.onDamage({ attacker, target, damage: real, killed, tag: inst.tag, dot: false });
     return real;
@@ -279,14 +304,42 @@ export class CombatSystem {
     }
   }
 
-  /** Draws a short-lived swing arc visual for feedback (not debug). */
+  /** Draws active player hit volumes so skill shapes read clearly (not debug). */
   swingVisual(g: Phaser.GameObjects.Graphics): void {
     for (const h of this.hits) {
-      if (h.shape !== 'arc' || !h.owner.isPlayer) continue;
-      g.lineStyle(3, h.color, 0.55);
-      g.beginPath();
-      g.arc(h.x, h.y, h.range * 0.9, h.dir - h.arc / 2, h.dir + h.arc / 2);
-      g.strokePath();
+      if (!h.owner.isPlayer) continue;
+      const a = Math.min(0.7, 0.25 + h.t * 1.8);
+      if (h.shape === 'circle') {
+        g.fillStyle(h.color, a * 0.22);
+        g.fillCircle(h.x, h.y, h.radius);
+        g.lineStyle(4, h.color, a);
+        g.strokeCircle(h.x, h.y, h.radius);
+        g.lineStyle(2, 0xffffff, a * 0.55);
+        g.strokeCircle(h.x, h.y, h.radius * 0.78);
+      } else {
+        g.fillStyle(h.color, a * 0.28);
+        g.beginPath();
+        g.moveTo(h.x, h.y);
+        g.arc(h.x, h.y, h.range * 0.95, h.dir - h.arc / 2, h.dir + h.arc / 2, false);
+        g.closePath();
+        g.fillPath();
+        g.lineStyle(4, h.color, a);
+        g.beginPath();
+        g.arc(h.x, h.y, h.range * 0.95, h.dir - h.arc / 2, h.dir + h.arc / 2, false);
+        g.strokePath();
+        g.lineStyle(2, 0xffffff, a * 0.5);
+        g.beginPath();
+        g.arc(h.x, h.y, h.range * 0.72, h.dir - h.arc / 2, h.dir + h.arc / 2, false);
+        g.strokePath();
+      }
+    }
+    // Soft glow under flying projectiles.
+    for (const p of this.projectiles) {
+      if (!p.owner.isPlayer) continue;
+      g.fillStyle(p.tint, 0.22);
+      g.fillCircle(p.x, p.y, Math.max(10, p.r * 1.8));
+      g.lineStyle(2, 0xffffff, 0.35);
+      g.strokeCircle(p.x, p.y, Math.max(8, p.r * 1.3));
     }
   }
 

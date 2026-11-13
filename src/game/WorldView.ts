@@ -38,6 +38,12 @@ interface Pickup {
   done: boolean;
 }
 
+export interface HealPad {
+  obj: WorldObject;
+  sprite: Phaser.GameObjects.Image;
+  readyAt: number;
+}
+
 let carcassIds = 1;
 
 export class WorldView {
@@ -47,8 +53,13 @@ export class WorldView {
   readonly carcGrid = new SpatialGrid<Carcass>(128);
   readonly coins: Pickup[] = [];
   readonly stones: Pickup[] = [];
+  readonly healpads: HealPad[] = [];
   readonly shelters: WorldObject[] = [];
   shrine: WorldObject | null = null;
+  /** Fired when a fully eaten plant finishes regrowing. */
+  onResourceRegrow: ((n: ResourceNode) => void) | null = null;
+  /** Fired when a spent heal pillar finishes recharging. */
+  onHealpadReady: ((p: HealPad) => void) | null = null;
   portal: { obj: WorldObject; sprite: Phaser.GameObjects.Image } | null = null;
   readonly shoreGrid = new SpatialGrid<{ x: number; y: number }>(160);
   /** Every placed world object with its sprite (mirrored by the 3D view). */
@@ -192,6 +203,12 @@ export class WorldView {
           this.shrine = o;
           break;
         }
+        case 'healpad': {
+          const img = s.add.image(o.x, baseY + 2, 'healpad').setOrigin(0.5, 1).setDepth(baseY);
+          this.addToChunk(img, o);
+          this.healpads.push({ obj: o, sprite: img, readyAt: 0 });
+          break;
+        }
         case 'portal': {
           const img = s.add.image(o.x, baseY + 4, 'portal_off').setOrigin(0.5, 1).setDepth(baseY);
           this.addToChunk(img, o);
@@ -264,14 +281,28 @@ export class WorldView {
     n.img.setTexture(`${n.obj.kind}_${n.portions > 0 ? 'full' : 'empty'}`);
   }
 
-  /** Takes one portion. Regrowth timer starts when the first portion is taken. */
+  /** Takes one portion. Regrowth timer restarts from the latest bite. */
   consume(n: ResourceNode, now: number): boolean {
     if (n.portions <= 0) return false;
-    if (n.portions === n.def.portions) n.regrowAt = now + n.def.regrowSec;
     n.portions--;
+    n.regrowAt = now + n.def.regrowSec;
     this.depleted.add(n);
     this.refreshNode(n);
     return true;
+  }
+
+  /** Marks a heal pillar spent until `readyAt` (game time). */
+  useHealpad(p: HealPad, now: number, cooldownSec: number): void {
+    p.readyAt = now + cooldownSec;
+    p.sprite.setTint(0x556655).setAlpha(0.55);
+  }
+
+  private refreshHealpad(p: HealPad, now: number): void {
+    if (p.readyAt > 0 && now >= p.readyAt) {
+      p.readyAt = 0;
+      p.sprite.clearTint().setAlpha(1);
+      this.onHealpadReady?.(p);
+    }
   }
 
   addCarcass(x: number, y: number, portions: number, now: number): void {
@@ -345,14 +376,18 @@ export class WorldView {
     }
     this.regrowTimer -= dt;
     if (this.regrowTimer <= 0) {
-      this.regrowTimer = 1;
+      this.regrowTimer = 0.5;
       for (const n of [...this.depleted]) {
-        if (now >= n.regrowAt) {
+        if (n.regrowAt > 0 && now >= n.regrowAt && n.portions < n.def.portions) {
+          const wasEmpty = n.portions <= 0;
           n.portions = n.def.portions;
+          n.regrowAt = 0;
           this.depleted.delete(n);
           this.refreshNode(n);
+          if (wasEmpty) this.onResourceRegrow?.(n);
         }
       }
+      for (const p of this.healpads) this.refreshHealpad(p, now);
       for (const c of [...this.carcasses]) if (now >= c.expireAt) this.removeCarcass(c);
     }
   }
