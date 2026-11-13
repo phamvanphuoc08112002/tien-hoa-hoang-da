@@ -81,6 +81,8 @@ export const BALANCE = {
     restFatigueRecoverPerSec: 100 / 400,
     /** Movement multiplier in swamp mud (species with swampWalker ignore it). */
     swampSpeedMult: 0.75,
+    /** Movement multiplier while swimming rivers / lakes (flyers ignore it). */
+    swimSpeedMult: 0.62,
     /** Drinking murky swamp water poisons non-swamp species for this long. */
     swampWaterPoisonSec: 8,
   },

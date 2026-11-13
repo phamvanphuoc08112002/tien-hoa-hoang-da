@@ -2377,6 +2377,7 @@ export class GameScene extends Phaser.Scene {
 
     for (const k of P.status.list()) status.push(`${STATUS_INFO[k].icon} ${STATUS_INFO[k].name} ${Math.ceil(P.status.left(k))}s`);
     if (P.inSwamp && !getSpecies(S.speciesId).swampWalker && !P.flies) status.push('Lội bùn (chậm)');
+    if (P.inWater && !P.flies) status.push('🏊 Bơi (chậm)');
     if (P.flies) status.push('Bay lượn');
     else if (P.bipedal) status.push('Đi hai chân');
     const ev = this.currentEvent();

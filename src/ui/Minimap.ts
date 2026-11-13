@@ -179,4 +179,28 @@ export class Minimap {
     g.arc(px, py, 2, 0, Math.PI * 2);
     g.fill();
   }
+
+  /** Labels for special sites on the full-world map (after terrain is drawn). */
+  annotateLandmarks(g: CanvasRenderingContext2D, discovered: Set<number>, portalOpen: boolean): void {
+    const S = BALANCE.world.sectorTiles;
+    const label = (tx: number, ty: number, text: string, color: string) => {
+      const sec = Math.floor(ty / S) * this.sectorsX + Math.floor(tx / S);
+      if (!discovered.has(sec)) return;
+      g.font = 'bold 9px "Segoe UI", system-ui, sans-serif';
+      g.textAlign = 'left';
+      g.textBaseline = 'middle';
+      const x = tx + 5;
+      const y = ty + 0.5;
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(0,0,0,0.75)';
+      g.strokeText(text, x, y);
+      g.fillStyle = color;
+      g.fillText(text, x, y);
+    };
+    for (const s of this.shelters) label(s.tx, s.ty, 'Nơi trú ẩn', '#fff0d0');
+    for (const h of this.healpads) label(h.tx, h.ty, 'Trụ hồi máu', '#7dffb0');
+    if (this.shrine) label(this.shrine.tx, this.shrine.ty, 'Đền Cổ', '#ffcf4a');
+    const pt = this.world.portal;
+    if (pt) label(pt.tx, pt.ty, portalOpen ? 'Cổng Cổ (mở)' : 'Cổng Cổ', portalOpen ? '#e0b0ff' : '#b08aff');
+  }
 }

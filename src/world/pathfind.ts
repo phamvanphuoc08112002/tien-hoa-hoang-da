@@ -10,7 +10,7 @@ const N4: [number, number][] = [
 
 function walkable(world: WorldData, i: number, canClimb: boolean): boolean {
   const b = world.blocked[i];
-  return b === BLK.FREE || (canClimb && b === BLK.LEDGE);
+  return b === BLK.FREE || b === BLK.WATER || (canClimb && b === BLK.LEDGE);
 }
 
 /** Nearest walkable tile within `radius` (Chebyshev), or null. */

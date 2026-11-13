@@ -11,7 +11,15 @@ export function moveRadiusFor(visualRadius: number): number {
 export function isSolidTile(world: WorldData, tx: number, ty: number, canClimb: boolean): boolean {
   if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return true;
   const b = world.blocked[ty * world.w + tx];
-  return b === BLK.SOLID || b === BLK.WATER || (b === BLK.LEDGE && !canClimb);
+  // Water is swimmable (rivers / lakes); only walls and unclimbable ledges block.
+  return b === BLK.SOLID || (b === BLK.LEDGE && !canClimb);
+}
+
+/** True when the tile is water that slows grounded movement (fords stay normal speed). */
+export function isSwimTile(world: WorldData, tx: number, ty: number): boolean {
+  if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return false;
+  const t = world.tiles[ty * world.w + tx];
+  return t === TT.WATER || t === TT.DEEP;
 }
 
 function circleHitsSolid(world: WorldData, cx: number, cy: number, r: number, canClimb: boolean): boolean {

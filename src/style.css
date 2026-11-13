@@ -1032,32 +1032,81 @@ kbd {
   margin-top: 14px;
 }
 .panel.map-panel {
-  width: min(920px, 96vw);
-  max-width: min(920px, 96vw);
+  width: min(960px, 96vw);
+  max-width: min(960px, 96vw);
   max-height: 96vh;
   padding: 14px 16px 16px;
 }
 .panel.map-panel .map-hint {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   font-size: 13px;
   color: #c8d4e6;
   line-height: 1.35;
 }
+.panel.map-panel .map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  flex-wrap: wrap;
+}
+.panel.map-panel .map-toolbar [data-e='zoom'] {
+  min-width: 48px;
+  text-align: center;
+  font-weight: 700;
+  color: #ffd84a;
+}
+.panel.map-panel .map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #c8d4e6;
+}
+.panel.map-panel .map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.panel.map-panel .map-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.panel.map-panel .map-legend .ml-shelter {
+  background: #fff0d0;
+}
+.panel.map-panel .map-legend .ml-heal {
+  background: #5ef0a0;
+}
+.panel.map-panel .map-legend .ml-shrine {
+  background: #ffcf4a;
+}
+.panel.map-panel .map-legend .ml-portal {
+  background: #c08aff;
+}
+.panel.map-panel .map-legend .ml-you {
+  background: #2a8aff;
+  border-radius: 50%;
+}
 .panel.map-panel .map-stage {
   width: 100%;
-  max-height: min(72vh, 640px);
+  max-height: min(68vh, 620px);
   overflow: auto;
   border: 2px solid #3a4860;
   border-radius: 10px;
   background: #0a1018;
   touch-action: none;
+  overscroll-behavior: contain;
 }
 .panel.map-panel canvas.worldmap {
   display: block;
-  width: 100%;
-  height: auto;
   image-rendering: pixelated;
   cursor: crosshair;
+  max-width: none;
 }
 .char-grid {
   display: grid;

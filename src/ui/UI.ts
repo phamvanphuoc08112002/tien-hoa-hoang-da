@@ -707,7 +707,7 @@ export class UI {
     return o;
   }
 
-  /** Full-world map: tap to place a navigation mark and show a walkable path. */
+  /** Full-world map: zoom, landmark labels, tap to place a navigation mark. */
   openWorldMap(opts: {
     minimap: Minimap;
     getDots: () => MinimapDots;
@@ -716,7 +716,20 @@ export class UI {
   }): void {
     const html = `
       <h2>Bản đồ thế giới</h2>
-      <p class="map-hint">Chạm bản đồ để đánh dấu. Mũi tên trên mặt đất sẽ dẫn bạn tới điểm đó.</p>
+      <p class="map-hint">Chạm để đánh dấu đường đi. Lăn chuột / nút + − để phóng to. Có thể bơi qua sông.</p>
+      <div class="map-toolbar">
+        <button type="button" data-a="zout" title="Thu nhỏ">−</button>
+        <span data-e="zoom">100%</span>
+        <button type="button" data-a="zin" title="Phóng to">+</button>
+        <button type="button" data-a="zreset">Vừa khung</button>
+      </div>
+      <div class="map-legend">
+        <span><i class="ml-shelter"></i>Nơi trú ẩn</span>
+        <span><i class="ml-heal"></i>Trụ hồi máu</span>
+        <span><i class="ml-shrine"></i>Đền Cổ</span>
+        <span><i class="ml-portal"></i>Cổng Cổ</span>
+        <span><i class="ml-you"></i>Bạn</span>
+      </div>
       <div class="map-stage"><canvas class="worldmap" aria-label="Bản đồ đầy đủ"></canvas></div>
       <div class="row">
         <button type="button" data-a="clear">Xóa dấu đường đi</button>
@@ -724,17 +737,33 @@ export class UI {
       </div>`;
     const o = this.openOverlay('map', html, () => this.closeOverlay(), 'map-panel');
     const canvas = o.querySelector('canvas.worldmap') as HTMLCanvasElement;
+    const stage = o.querySelector('.map-stage') as HTMLElement;
+    const zoomEl = o.querySelector('[data-e=zoom]') as HTMLElement;
     const src = opts.minimap.canvas;
     canvas.width = src.width;
     canvas.height = src.height;
     const g = canvas.getContext('2d') as CanvasRenderingContext2D;
+    let zoom = 1.6;
+    const applyZoom = () => {
+      zoom = Math.max(1, Math.min(4.5, zoom));
+      canvas.style.width = `${Math.round(src.width * zoom)}px`;
+      canvas.style.height = `${Math.round(src.height * zoom)}px`;
+      zoomEl.textContent = `${Math.round(zoom * 100)}%`;
+    };
     const paint = () => {
-      opts.minimap.draw(opts.getDots());
+      const dots = opts.getDots();
+      opts.minimap.draw(dots);
+      g.imageSmoothingEnabled = false;
       g.clearRect(0, 0, canvas.width, canvas.height);
       g.drawImage(src, 0, 0);
+      opts.minimap.annotateLandmarks(g, dots.discovered, !!dots.portalOpen);
     };
     paint();
-    this.mapRefresh = paint;
+    applyZoom();
+    this.mapRefresh = () => {
+      paint();
+      applyZoom();
+    };
     const markAt = (clientX: number, clientY: number) => {
       const r = canvas.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) return;
@@ -749,11 +778,53 @@ export class UI {
       e.stopPropagation();
       markAt(e.clientX, e.clientY);
     });
+    stage.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const before = zoom;
+        zoom *= e.deltaY < 0 ? 1.18 : 1 / 1.18;
+        applyZoom();
+        // Keep cursor-ish focus: scroll stage toward pointer.
+        if (zoom !== before) {
+          const rect = stage.getBoundingClientRect();
+          const mx = e.clientX - rect.left + stage.scrollLeft;
+          const my = e.clientY - rect.top + stage.scrollTop;
+          const k = zoom / before;
+          stage.scrollLeft = mx * k - (e.clientX - rect.left);
+          stage.scrollTop = my * k - (e.clientY - rect.top);
+        }
+      },
+      { passive: false },
+    );
+    o.querySelector('[data-a=zin]')?.addEventListener('click', () => {
+      zoom *= 1.25;
+      applyZoom();
+    });
+    o.querySelector('[data-a=zout]')?.addEventListener('click', () => {
+      zoom /= 1.25;
+      applyZoom();
+    });
+    o.querySelector('[data-a=zreset]')?.addEventListener('click', () => {
+      zoom = 1.6;
+      applyZoom();
+      stage.scrollLeft = Math.max(0, (canvas.clientWidth - stage.clientWidth) / 2);
+      stage.scrollTop = Math.max(0, (canvas.clientHeight - stage.clientHeight) / 2);
+    });
     o.querySelector('[data-a=clear]')?.addEventListener('click', () => {
       opts.onClear();
       paint();
     });
     o.querySelector('[data-a=close]')?.addEventListener('click', () => this.closeOverlay());
+    // Center on player after first layout.
+    requestAnimationFrame(() => {
+      const dots = opts.getDots();
+      const T = BALANCE.tile;
+      const px = (dots.px / T) * zoom;
+      const py = (dots.py / T) * zoom;
+      stage.scrollLeft = Math.max(0, px - stage.clientWidth / 2);
+      stage.scrollTop = Math.max(0, py - stage.clientHeight / 2);
+    });
   }
 
   refreshWorldMap(): void {

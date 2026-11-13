@@ -67,6 +67,20 @@ describe('collision unstuck / move radius', () => {
     expect(isPositionFree(world, moved.x, moved.y, r, false)).toBe(true);
   });
 
+  it('shallow and deep water are swimmable, walls stay solid', () => {
+    const world = blankWorld();
+    world.blocked[2 * world.w + 2] = BLK.WATER;
+    world.tiles[2 * world.w + 2] = 3; // WATER
+    const x = 2 * T + T / 2;
+    const y = 2 * T + T / 2;
+    expect(isPositionFree(world, x, y, 10, false)).toBe(true);
+    const moved = moveCircle(world, T + T / 2, y, T, 0, 10, false);
+    expect(moved.x).toBeGreaterThan(T + T / 2);
+    world.blocked[2 * world.w + 3] = BLK.SOLID;
+    const blocked = moveCircle(world, x, y, T, 0, 10, false);
+    expect(blocked.blockedX).toBe(true);
+  });
+
   it('generated forests do not mark trees as solid blockers', () => {
     const w = generateWorld('ALPHA');
     let treeTiles = 0;

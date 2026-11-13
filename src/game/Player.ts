@@ -8,7 +8,7 @@ import { computeStats, formOf, powerScore, speciesOf, type PlayerState } from '.
 import { equippedSkill } from '../systems/skills';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { RestController, StaminaClock, fatigueSpeedMult } from '../systems/survival';
-import { moveCircle, moveRadiusFor, unstuckCircle } from '../world/collision';
+import { isSwimTile, moveCircle, moveRadiusFor, unstuckCircle } from '../world/collision';
 import { TT, type WorldData } from '../world/tiles';
 import type { CombatSystem, Creature } from './CombatSystem';
 import type { Effects, ParticleKind } from './Effects';
@@ -103,6 +103,7 @@ export class Player implements PlayerInfo {
   buff: Buff | null = null;
   status = new StatusEffects<Creature>();
   inSwamp = false;
+  inWater = false;
   /** Called when a skill fires (after its windup). */
   onSkillCast: ((sk: SkillDef) => void) | null = null;
   moving = false;
@@ -268,6 +269,7 @@ export class Player implements PlayerInfo {
     const tx = Math.floor(this.x / BALANCE.tile);
     const ty = Math.floor(this.y / BALANCE.tile);
     this.inSwamp = env.world.tiles[ty * env.world.w + tx] === TT.SWAMP;
+    this.inWater = isSwimTile(env.world, tx, ty);
 
     if (!this.alive) {
       this.play('dead');
@@ -322,6 +324,7 @@ export class Player implements PlayerInfo {
     if (this.buff) speed *= this.buff.speedMult;
     speed *= this.status.speedMult();
     if (this.inSwamp && !this.species.swampWalker && !this.flies) speed *= BALANCE.survival.swampSpeedMult;
+    if (this.inWater && !this.flies) speed *= BALANCE.survival.swimSpeedMult;
     if (this.action) speed *= this.action.moveMult;
     if (this.stunT > 0) speed = 0;
     const tvx = this.moving ? dirX * speed : 0;
@@ -379,6 +382,9 @@ export class Player implements PlayerInfo {
         this.stepT = this.sprinting ? 0.2 : 0.3;
         if (this.flies) {
           env.fx.burst(this.x, this.y - this.hoverOffset() - 6, 'dust', 2, { speed: 18, life: 0.35, tint: 0xffffff });
+        } else if (this.inWater) {
+          env.fx.burst(this.x, this.y, 'bubble', 2, { speed: 22, life: 0.45, tint: 0x7ad0ff });
+          env.fx.burst(this.x, this.y + 2, 'drop', 1, { speed: 18, life: 0.35, tint: 0x4aa8ff });
         } else {
           env.audio.play('step');
           env.fx.burst(this.x - this.facing * this.radius * 0.5, this.y, env.weather === 'rain' ? 'drop' : 'dust', 1, { speed: 25, life: 0.35, depth: this.y - 1 });
