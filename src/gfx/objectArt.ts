@@ -461,6 +461,43 @@ export function foodIconArt(food: string): HTMLCanvasElement {
         ellipse(g, 7.5, 5, 3.6, 3, '#b8402e');
         ellipse(g, 7, 4, 1.8, 1.2, '#e0705a');
       }, '#3a120c');
+    case 'binh_giai_doc':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 7, 3.2, 3.8, '#9ae06a');
+        rect(g, 5, 2, 2, 3, '#d0e8b0');
+        rect(g, 4.5, 1.5, 3, 1.2, '#6a8a4a');
+      }, '#1a2e12');
+    case 'cao_lam_lanh':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 7.5, 3.5, 3.2, '#7ad0ff');
+        rect(g, 4, 3, 4, 3, '#c8ecff');
+        rect(g, 5, 2, 2, 1.5, '#4a90c0');
+      }, '#0e2438');
+    case 'tonic_suc_manh':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 6.5, 3.4, 4, '#ff8a4a');
+        rect(g, 5, 2, 2, 3, '#ffd0a0');
+        rect(g, 4, 8, 4, 1.2, '#ffcf4a');
+      }, '#3a1808');
+    case 'tonic_giap':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 6.5, 3.6, 4, '#c0d0e8');
+        rect(g, 4, 4, 4, 5, '#e8f0ff');
+        line(g, 6, 3, 6, 9, 1.2, '#6a80a0');
+      }, '#1a2230');
+    case 'moi_thit':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 7, 4, 3.2, '#c04040');
+        ellipse(g, 5, 5.5, 1.6, 1.2, '#e0705a');
+        line(g, 3, 9, 8, 4, 1.2, '#f2ead8');
+      }, '#2a0c0c');
+    case 'banh_phuc_hoi':
+      return sprite(12, 12, (g) => {
+        ellipse(g, 6, 7, 4.2, 3.4, '#ffd84a');
+        rect(g, 4, 5, 1, 1, '#fff6c8');
+        rect(g, 7, 7, 1, 1, '#e0a020');
+        rect(g, 5.5, 8, 1, 1, '#fff6c8');
+      }, '#3a2a08');
     default:
       return sprite(12, 12, (g) => {
         for (let k = 0; k < 5; k++) line(g, 3 + k * 1.5, 11, 3 + k * 1.6 + (k % 2 ? 1 : -1), 3 + (k % 3), 1, '#6cc24a');

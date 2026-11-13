@@ -1,4 +1,5 @@
 import { BALANCE } from '../config/balance';
+import { isConsumable } from '../data/consumables';
 import { FOODS } from '../data/foods';
 import { LAST_REALM } from '../data/realms';
 import { SPECIES, getSpecies } from '../data/species';
@@ -7,6 +8,7 @@ import type { Weather } from '../data/types';
 import type { PlayerState } from './playerState';
 import { sanitizePlayerName } from './playerState';
 import { ensureSkillState } from './skills';
+import { ensureBestiary } from './bestiary';
 
 export const SAVE_KEY = 'tien-hoa-hoang-da.save';
 export const SAVE_BACKUP_KEY = 'tien-hoa-hoang-da.save.bak';
@@ -84,7 +86,7 @@ export function validateSave(d: any): string | null {
   }
   if (p.hp <= 0) return 'Nhân vật trong bản lưu đã chết.';
   if (!Array.isArray(p.inventory) || p.inventory.length !== p.slots) return 'Túi đồ bị hỏng.';
-  for (const it of p.inventory) if (it !== null && !(isStr(it) && FOODS[it])) return 'Vật phẩm không xác định trong túi đồ.';
+  for (const it of p.inventory) if (it !== null && !(isStr(it) && (FOODS[it] || isConsumable(it)))) return 'Vật phẩm không xác định trong túi đồ.';
   if (!Array.isArray(p.unlockedColors) || !p.unlockedColors.every((c: unknown) => isStr(c) && COLOR_VARIANTS.some((v) => v.id === c))) return 'Danh sách màu bị hỏng.';
   if (!Array.isArray(p.markers) || !Array.isArray(p.milestones) || !Array.isArray(p.discoveredSectors) || !Array.isArray(p.discoveredBiomes)) return 'Dữ liệu khám phá bị hỏng.';
   if (!p.stats || typeof p.stats !== 'object') return 'Thống kê bị hỏng.';
@@ -115,6 +117,7 @@ function sanitize(d: SaveData): SaveData {
     if (!isNum(p.stats[k])) p.stats[k] = 0;
   }
   ensureSkillState(p);
+  ensureBestiary(p);
   p.realm = isNum(p.realm) ? c(Math.floor(p.realm), 0, LAST_REALM) : 0;
   const w = d.world;
   w.guardianDown = w.guardianDown === true;

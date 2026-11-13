@@ -73,6 +73,8 @@ export interface PlayerState {
   mastery: Record<string, number>;
   /** Index of the realm (map) the run is in; each gate crossed adds a permanent stat bonus. */
   realm: number;
+  /** First-seen / first-killed catalogue keyed by NPC id. */
+  bestiary: Record<string, { seen: boolean; killed: boolean }>;
 }
 
 export function createPlayerState(speciesId: string, x: number, y: number): PlayerState {
@@ -108,6 +110,7 @@ export function createPlayerState(speciesId: string, x: number, y: number): Play
     equipped: [sp.learnset[0].skill, null, null],
     mastery: {},
     realm: 0,
+    bestiary: {},
   };
 }
 

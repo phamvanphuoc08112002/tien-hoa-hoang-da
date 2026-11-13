@@ -1,6 +1,8 @@
 import { BALANCE } from '../config/balance';
 import { formatDuration } from '../core/math';
+import { CONSUMABLES, isConsumable } from '../data/consumables';
 import { FOODS } from '../data/foods';
+import { listQuests } from '../data/quests';
 import { COLOR_VARIANTS, SHOP } from '../data/shop';
 import { SKILLS, skillRoot } from '../data/skills';
 import { SLOT_KEYS, reqLabel, slotUnlocked } from '../systems/skills';
@@ -8,6 +10,7 @@ import { SPECIES, getSpecies } from '../data/species';
 import type { Weather } from '../data/types';
 import { skillIconUrl, formatSkillTip } from '../gfx/skillIcons';
 import { foodIconUrl, speciesPreviewUrl } from '../gfx/textures';
+import { bestiaryCatalog, bestiaryStats } from '../systems/bestiary';
 import type { EvoCheck } from '../systems/evolution';
 import { displayName, isFinalForm, type PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
@@ -61,6 +64,7 @@ export interface HudData {
   status: string[];
   warnings: string[];
   target: { name: string; level: number; hp: number; maxHp: number; state: string; danger: string } | null;
+  quest: { title: string; progress: number; target: number; done: boolean } | null;
 }
 
 export interface CharPanelData {
@@ -69,6 +73,7 @@ export interface CharPanelData {
   checks: EvoCheck[];
   canEvolve: boolean;
   evoDuration: number;
+  guardianDown: boolean;
 }
 
 export interface ShopCallbacks {
@@ -76,6 +81,7 @@ export interface ShopCallbacks {
   buyMarkers(): void;
   buyColor(id: string): void;
   equipColor(id: string): void;
+  buyConsumable(id: string): void;
 }
 
 export interface PauseCallbacks {
@@ -228,8 +234,8 @@ export class UI {
       m.innerHTML = `<div class="panel">
         <h2>Chơi mạng</h2>
         <p style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45">
-          Cùng loài (cùng hệ: Mộc, Hỏa, Thủy, Phong, Lôi, Thổ) sẽ hỗ trợ nhau khi đứng gần.<br>
-          Khác loài có thể tấn công lẫn nhau. Thế giới thú hoang mỗi máy tự chạy.
+          Cùng loài hỗ trợ nhau khi đứng gần. Bảo vệ đồng đội khi họ tiến hóa hoặc triệu hồi Boss Giữ Cổng.<br>
+          Khác loài có thể tấn công lẫn nhau.
         </p>
         <div class="row" style="flex-wrap:wrap;gap:8px">
           <button class="primary" data-a="create">Tạo phòng</button>
@@ -444,6 +450,7 @@ export class UI {
           })
           .join('')}
         <div class="status" data-e="status"></div>
+        <div class="quest" data-e="quest"></div>
       </div>
       <div class="target hud-box hidden" data-e="target"></div>
       <div class="topright">
@@ -589,6 +596,13 @@ export class UI {
     bar('stamina', d.stamina, d.maxStamina, `${Math.floor(d.stamina)}`, false);
     bar('fatigue', d.fatigue, 100, `${Math.floor(d.fatigue)}%`, d.fatigue >= BALANCE.survival.fatigueTiredLevel);
     E.status.textContent = d.status.join(' • ');
+    if (E.quest) {
+      if (d.quest) {
+        const pct = Math.min(100, (d.quest.progress / Math.max(1, d.quest.target)) * 100);
+        E.quest.innerHTML = `<span class="q-ico">${d.quest.done ? '✓' : '◉'}</span><span class="q-title">${esc(d.quest.title)}</span><span class="q-prog">${d.quest.progress}/${d.quest.target}</span><div class="q-bar"><div style="width:${pct}%"></div></div>`;
+        E.quest.classList.toggle('done', d.quest.done);
+      } else E.quest.textContent = '';
+    }
     E.exp.style.width = `${(d.exp / Math.max(1, d.expNext)) * 100}%`;
     E['exp-v'].textContent = `${Math.floor(d.exp)}/${d.expNext}`;
     E.mat.style.width = `${(d.maturity / d.maturityMax) * 100}%`;
@@ -771,6 +785,10 @@ export class UI {
           </table>
           <h3>Xu & túi đồ</h3>
           <div class="char-bag" data-e="char-bag"></div>
+          <h3>Mục tiêu</h3>
+          <div data-e="quest-area"></div>
+          <h3>Sổ sinh vật</h3>
+          <div data-e="bestiary-area"></div>
           <h3>Chiêu thức</h3>
           <div style="font-size:13px"><div><kbd>${this.touch.enabled ? 'Đánh' : 'Chuột'}</kbd><b>${esc(f.basic.name)}</b> — đòn cơ bản ${this.touch.enabled ? '(tự nhắm con gần nhất)' : 'về hướng con trỏ'}</div></div>
           <div data-e="skill-area" style="font-size:13px"></div>
@@ -792,6 +810,8 @@ export class UI {
     if (this.overlayKind !== 'char' || !this.overlay || !this.charRefresh) return;
     const d = this.charRefresh();
     this.renderCharBag(d.state);
+    this.renderQuests(d.state, d.guardianDown);
+    this.renderBestiary(d.state);
     this.renderSkills(d.state);
     const area = this.overlay.querySelector('[data-e=evo-area]') as HTMLElement;
     if (isFinalForm(d.state)) {
@@ -807,15 +827,16 @@ export class UI {
     area.querySelector('[data-a=evolve]')?.addEventListener('click', () => this.charEvolve?.());
   }
 
-  /** Coins + food bag inside the character panel. */
+  /** Coins + food/consumable bag inside the character panel. */
   private renderCharBag(s: PlayerState): void {
     const box = this.overlay?.querySelector('[data-e=char-bag]') as HTMLElement | null;
     if (!box) return;
     const filled = s.inventory.filter(Boolean).length;
     const slots = s.inventory
       .map((it, i) => {
-        const name = it ? FOODS[it].name : 'Trống';
-        return `<button type="button" class="slot ${it ? 'filled' : 'empty'}" data-inv="${i}" title="${esc(name)}${it ? ' — chạm để ăn' : ''}" ${it ? '' : 'disabled'}>
+        const name = it ? (FOODS[it]?.name ?? CONSUMABLES[it]?.name ?? it) : 'Trống';
+        const tip = it && isConsumable(it) ? ' — chạm để dùng' : it ? ' — chạm để ăn' : '';
+        return `<button type="button" class="slot ${it ? 'filled' : 'empty'}" data-inv="${i}" title="${esc(name)}${tip}" ${it ? '' : 'disabled'}>
           <span class="key">${i + 1}</span>
           ${it ? `<img src="${foodIconUrl(it)}" alt="${esc(name)}">` : '<span class="empty-mark">·</span>'}
         </button>`;
@@ -824,16 +845,47 @@ export class UI {
     const html = `
       <div class="char-bag-head">
         <span class="coin-badge">🪙 ${s.coins}</span>
-        <span class="bag-meta">Túi đồ ăn <b>${filled}/${s.inventory.length}</b></span>
+        <span class="bag-meta">Túi đồ <b>${filled}/${s.inventory.length}</b></span>
       </div>
       <div class="inventory char-inv">${slots}</div>
-      <small class="bag-hint">Chạm ô để ăn (hồi đói & máu). Ngoài bảng có thể dùng phím 1–6.</small>`;
+      <small class="bag-hint">Chạm ô để ăn / dùng vật phẩm. Ngoài bảng: phím 1–6.</small>`;
     if (box.dataset.last === html) return;
     box.dataset.last = html;
     box.innerHTML = html;
     box.querySelectorAll<HTMLButtonElement>('[data-inv]').forEach((b) => {
       b.addEventListener('click', () => this.onInvTap?.(Number(b.dataset.inv)));
     });
+  }
+
+  private renderQuests(s: PlayerState, guardianDown: boolean): void {
+    const box = this.overlay?.querySelector('[data-e=quest-area]') as HTMLElement | null;
+    if (!box) return;
+    const rows = listQuests(s, guardianDown)
+      .slice(0, 8)
+      .map((q) => `<li class="${q.done ? 'ok' : 'no'}"><b>${esc(q.title)}</b> <small>${q.progress}/${q.target}</small><br><small>${esc(q.desc)}</small></li>`)
+      .join('');
+    const html = `<ul class="checklist quest-list">${rows}</ul>`;
+    if (box.dataset.last === html) return;
+    box.dataset.last = html;
+    box.innerHTML = html;
+  }
+
+  private renderBestiary(s: PlayerState): void {
+    const box = this.overlay?.querySelector('[data-e=bestiary-area]') as HTMLElement | null;
+    if (!box) return;
+    const st = bestiaryStats(s);
+    const rows = bestiaryCatalog()
+      .map((n) => {
+        const e = s.bestiary?.[n.id];
+        if (!e?.seen) return `<div class="best-row locked">??? · chưa gặp</div>`;
+        const mark = e.killed ? '✓' : '👁';
+        return `<div class="best-row"><span>${mark}</span><b>${esc(n.name)}</b> <small>${esc(n.temperament)} · ${esc(n.diet)}</small></div>`;
+      })
+      .join('');
+    const html = `<p class="best-meta">Đã gặp <b>${st.seen}</b> / hạ <b>${st.killed}</b> / tổng ${st.total}</p><div class="best-grid">${rows}</div>`;
+    if (box.dataset.last === html) return;
+    box.dataset.last = html;
+    box.innerHTML = html;
   }
 
   /** Learnset with mastery bars and Q/R/T equip buttons. */
@@ -939,13 +991,26 @@ export class UI {
           : `<button data-buy="${v.id}" ${s.coins >= v.cost ? '' : 'disabled'}>Mua 🪙${v.cost}</button>`;
       return `<div class="swatch ${eq ? 'equipped' : ''}"><img src="${speciesPreviewUrl(s.speciesId, s.form, false, v.id)}" alt="">${esc(v.name)}${btn}</div>`;
     }).join('');
+    const bagFull = !s.inventory.includes(null);
+    const consumables = SHOP.consumableIds
+      .map((id) => {
+        const c = CONSUMABLES[id];
+        if (!c) return '';
+        const afford = s.coins >= c.cost && !bagFull;
+        return `<div class="shop-item"><div><b>${esc(c.icon)} ${esc(c.name)}</b><div class="desc">${esc(c.desc)}</div></div>
+          <button data-con="${c.id}" ${afford ? '' : 'disabled'}>Mua 🪙${c.cost}</button></div>`;
+      })
+      .join('');
     const html = `
       <h2>Đền Cổ — Trạm nâng cấp</h2>
       <div>Tiền xu hiện có: <b style="color:#ffcf4a">🪙 ${s.coins}</b></div>
-      <div class="shop-item"><div><b>Túi mang thêm</b><div class="desc">Thêm 1 ô chứa thức ăn (hiện ${s.slots}/${BALANCE.inventory.maxSlots}).</div></div>
+      <div class="shop-item"><div><b>Túi mang thêm</b><div class="desc">Thêm 1 ô chứa thức ăn / vật phẩm (hiện ${s.slots}/${BALANCE.inventory.maxSlots}).</div></div>
         ${slotMax ? '<button disabled>Tối đa</button>' : `<button data-a="slot" ${s.coins >= slotCost ? '' : 'disabled'}>Mua 🪙${slotCost}</button>`}</div>
       <div class="shop-item"><div><b>Dấu đánh dấu bản đồ</b><div class="desc">${this.touch.enabled ? 'Bấm nút <kbd>Dấu</kbd>' : 'Nhấn <kbd>M</kbd>'} để đặt/xóa dấu tại vị trí hiện tại (tối đa ${SHOP.maxMarkers}). Hiện trên bản đồ nhỏ và trong thế giới.</div></div>
         ${s.markersUnlocked ? '<button disabled>Đã mở</button>' : `<button data-a="markers" ${s.coins >= SHOP.markerUnlockCost ? '' : 'disabled'}>Mua 🪙${SHOP.markerUnlockCost}</button>`}</div>
+      <h3>Vật phẩm tiêu hao</h3>
+      ${bagFull ? '<p class="desc">Túi đầy — không mua thêm được.</p>' : ''}
+      ${consumables}
       <h3>Màu ngoại hình</h3>
       <div class="color-swatches">${colors}</div>
       <div class="row"><button data-a="close">Đóng</button></div>`;
@@ -955,6 +1020,7 @@ export class UI {
     o.querySelector('[data-a=markers]')?.addEventListener('click', cb.buyMarkers);
     o.querySelectorAll<HTMLElement>('[data-buy]').forEach((b) => b.addEventListener('click', () => cb.buyColor(b.dataset.buy as string)));
     o.querySelectorAll<HTMLElement>('[data-eq]').forEach((b) => b.addEventListener('click', () => cb.equipColor(b.dataset.eq as string)));
+    o.querySelectorAll<HTMLElement>('[data-con]').forEach((b) => b.addEventListener('click', () => cb.buyConsumable(b.dataset.con as string)));
   }
 
   showDeath(summary: { name: string; cause: string; days: number; time: string; level: number; form: string; kills: number; coins: number }, onRestart: () => void, onMenu: () => void): void {

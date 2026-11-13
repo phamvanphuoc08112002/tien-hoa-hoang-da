@@ -536,6 +536,44 @@ button.danger {
   color: #c8e6ff;
   min-height: 16px;
 }
+#hud .quest {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(120, 140, 170, 0.25);
+  font-size: 12px;
+  color: #d8e6ff;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px 6px;
+  align-items: center;
+}
+#hud .quest .q-ico {
+  color: #ffcf4a;
+}
+#hud .quest.done .q-ico {
+  color: #7dffb0;
+}
+#hud .quest .q-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#hud .quest .q-prog {
+  color: #a9b0bd;
+  font-size: 11px;
+}
+#hud .quest .q-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(40, 50, 70, 0.8);
+  overflow: hidden;
+}
+#hud .quest .q-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #5ad08a, #ffcf4a);
+}
 #hud .topright {
   position: absolute;
   top: 10px;
@@ -1145,6 +1183,35 @@ body.touch .slot-btn {
 }
 .stat-table td {
   padding: 2px 10px 2px 0;
+}
+.quest-list {
+  max-height: 180px;
+  overflow: auto;
+}
+.best-meta {
+  font-size: 12px;
+  color: #a9b0bd;
+  margin: 0 0 6px;
+}
+.best-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+}
+.best-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.best-row.locked {
+  color: #6a7384;
+}
+.best-row span {
+  width: 1.1em;
+  color: #7dffb0;
 }
 .shop-item {
   display: flex;

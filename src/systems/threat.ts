@@ -39,9 +39,9 @@ export function canBeElite(def: NpcDef): boolean {
   return !def.unique && def.temperament !== 'prey';
 }
 
-export function eliteChance(tier: number, bloodMoon: boolean, realm = 0): number {
+export function eliteChance(tier: number, bloodMoon: boolean, realm = 0, eliteBonus = 0): number {
   const t = BALANCE.threat;
-  return t.eliteChance + t.eliteChancePerTier * tier + (bloodMoon ? 0.1 : 0) + realmOf(realm).scaling.eliteChance;
+  return t.eliteChance + t.eliteChancePerTier * tier + (bloodMoon ? 0.1 : 0) + eliteBonus + realmOf(realm).scaling.eliteChance;
 }
 
 /** Effective stats for a creature spawned in a given tier/day/realm, optionally as an elite. */

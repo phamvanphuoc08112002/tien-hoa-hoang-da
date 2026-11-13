@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
+import type { Diet } from '../data/types';
 import { getSpecies } from '../data/species';
 import { ensurePlayerTexture } from '../gfx/textures';
 import type { PlayerStateMsg } from '../net/room';
+import { powerScore } from '../systems/playerState';
 import { StatusEffects } from '../systems/status';
 import type { Creature } from './CombatSystem';
+import type { PlayerInfo } from './Npcs';
 
 let nextUid = 10_000;
 
@@ -11,7 +14,7 @@ let nextUid = 10_000;
  * Another human player mirrored from the network. Implements Creature so local
  * combat can hit enemies; same-species allies are filtered in CombatSystem.
  */
-export class RemotePlayer implements Creature {
+export class RemotePlayer implements Creature, PlayerInfo {
   readonly uid: number;
   readonly isPlayer = false;
   /** Used for NPC-style friendly checks; remotes use speciesId instead. */
@@ -32,7 +35,19 @@ export class RemotePlayer implements Creature {
   facing = 1;
   anim = 'idle';
   displayName = '';
+  sleeping = false;
+  inShelter = false;
+  evolving = false;
   status = new StatusEffects<Creature>();
+
+  get diet(): Diet {
+    return getSpecies(this.speciesId).diet;
+  }
+
+  get score(): number {
+    const f = getSpecies(this.speciesId).forms[this.form];
+    return powerScore(f.stats.power, f.stats.maxHp);
+  }
 
   sprite: Phaser.GameObjects.Sprite;
   shadow: Phaser.GameObjects.Image;
@@ -128,6 +143,7 @@ export class RemotePlayer implements Creature {
     this.alive = msg.alive;
     this.facing = msg.facing;
     this.anim = msg.anim;
+    this.evolving = !!msg.evolving;
     if (msg.alive) this.play(msg.anim);
     else this.play('dead');
   }

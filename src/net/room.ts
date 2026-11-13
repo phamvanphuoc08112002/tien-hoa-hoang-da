@@ -20,6 +20,16 @@ export interface PlayerStateMsg {
   facing: number;
   alive: boolean;
   name: string;
+  /** Peer is mid-evolution — wildlife may aggro them (co-op protect). */
+  evolving?: boolean;
+}
+
+export interface GuardianMsg {
+  t: 'guardian';
+  from: string;
+  action: 'summon' | 'down';
+  x?: number;
+  y?: number;
 }
 
 export interface HitMsg {
@@ -63,7 +73,7 @@ export interface PeerGoneMsg {
   from: string;
 }
 
-export type NetMsg = PlayerStateMsg | HitMsg | WelcomeMsg | HelloMsg | LeaveMsg | PeerGoneMsg;
+export type NetMsg = PlayerStateMsg | HitMsg | WelcomeMsg | HelloMsg | LeaveMsg | PeerGoneMsg | GuardianMsg;
 
 export type NetHandler = (msg: NetMsg, from: string) => void;
 

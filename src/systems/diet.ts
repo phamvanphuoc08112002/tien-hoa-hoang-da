@@ -1,4 +1,5 @@
 import { BALANCE } from '../config/balance';
+import { CONSUMABLES, isConsumable } from '../data/consumables';
 import { FOODS, dietEfficiency } from '../data/foods';
 import type { Diet } from '../data/types';
 import type { PlayerState } from './playerState';
@@ -55,13 +56,17 @@ export function decaySatiation(s: PlayerState, dt: number): void {
   s.satiation = Math.max(0, s.satiation - BALANCE.maturity.eatDiminishDecayPerSec * dt);
 }
 
-/** Adds a carriable food to the first empty slot. */
-export function addToInventory(s: PlayerState, foodId: string): boolean {
-  if (!FOODS[foodId]?.carriable) return false;
+/** Adds a carriable food or consumable to the first empty slot. */
+export function addToInventory(s: PlayerState, itemId: string): boolean {
+  if (!FOODS[itemId]?.carriable && !isConsumable(itemId)) return false;
   const i = s.inventory.indexOf(null);
   if (i < 0) return false;
-  s.inventory[i] = foodId;
+  s.inventory[i] = itemId;
   return true;
+}
+
+export function inventoryItemLabel(id: string): string {
+  return FOODS[id]?.name ?? CONSUMABLES[id]?.name ?? id;
 }
 
 export function hasInventorySpace(s: PlayerState): boolean {
@@ -72,10 +77,38 @@ export function hasInventorySpace(s: PlayerState): boolean {
 export function eatFromSlot(s: PlayerState, diet: Diet, slot: number, maxHp = 0): EatResult {
   const id = s.inventory[slot];
   if (!id) return { ok: false, reason: 'Ô trống', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
+  if (isConsumable(id)) return { ok: false, reason: 'Dùng vật phẩm tiêu hao', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
   const food = FOODS[id];
   const canHeal = !!food && food.heal > 0 && maxHp > 0 && s.hp > 0 && s.hp < maxHp;
   if (s.hunger >= 99.5 && !canHeal) return { ok: false, reason: 'Đã no', hunger: 0, thirst: 0, maturity: 0, heal: 0 };
   const r = eatFood(s, diet, id, maxHp);
   if (r.ok) s.inventory[slot] = null;
   return r;
+}
+
+export interface ConsumableResult {
+  ok: boolean;
+  reason?: string;
+  id: string;
+  heal: number;
+  hunger: number;
+}
+
+/** Uses a consumable from inventory; caller applies buffs / bait / status clears. */
+export function takeConsumable(s: PlayerState, slot: number, maxHp = 0): ConsumableResult {
+  const id = s.inventory[slot];
+  if (!id || !isConsumable(id)) return { ok: false, reason: 'Không phải vật phẩm tiêu hao', id: '', heal: 0, hunger: 0 };
+  const def = CONSUMABLES[id];
+  let heal = 0;
+  let hunger = 0;
+  if (def.use === 'ration') {
+    if (def.hunger) {
+      const before = s.hunger;
+      s.hunger = Math.min(100, s.hunger + def.hunger);
+      hunger = s.hunger - before;
+    }
+    if (def.heal && maxHp > 0) heal = applyHeal(s, maxHp, def.heal);
+  }
+  s.inventory[slot] = null;
+  return { ok: true, id, heal, hunger };
 }

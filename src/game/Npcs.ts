@@ -48,10 +48,14 @@ export interface NpcEnv {
   /** Dawns survived; raises creature strength over time. */
   days(): number;
   bloodMoon(): boolean;
+  /** Night event threat multipliers (defaults to 1 / blood-moon values). */
+  threatBoost(): { power: number; detect: number; population: number; eliteBonus: number };
   /** Current realm index; scales every creature. */
   realm: number;
   player: PlayerInfo;
   audio: AudioSystem;
+  /** Optional remotes for guardian / pack targeting. */
+  allies?(): PlayerInfo[];
 }
 
 type WindupKind = 'basic' | 'heavy' | 'ranged' | 'ult';
@@ -311,9 +315,13 @@ export class NpcManager {
     return n;
   }
 
+  private threat() {
+    return this.env.threatBoost?.() ?? { power: 1, detect: 1, population: 1, eliteBonus: 0 };
+  }
+
   private rollAffix(def: NpcDef, x: number, y: number): EliteAffix | null {
     if (!canBeElite(def)) return null;
-    if (Math.random() >= eliteChance(this.tierFor(x, y), this.env.bloodMoon(), this.env.realm)) return null;
+    if (Math.random() >= eliteChance(this.tierFor(x, y), this.env.bloodMoon(), this.env.realm, this.threat().eliteBonus)) return null;
     return AFFIX_IDS[Math.floor(Math.random() * AFFIX_IDS.length)];
   }
 
@@ -342,7 +350,9 @@ export class NpcManager {
   targetPopulation(def: NpcDef): number {
     if (def.unique) return def.population;
     let p = def.population * BALANCE.npc.populationScale;
-    if (this.env.bloodMoon() && (def.temperament === 'predator' || def.temperament === 'apex')) p *= BALANCE.threat.bloodMoonPopulation;
+    const pop = this.threat().population;
+    if (pop !== 1 && (def.temperament === 'predator' || def.temperament === 'apex' || def.temperament === 'territorial')) p *= pop;
+    else if (this.env.bloodMoon() && (def.temperament === 'predator' || def.temperament === 'apex')) p *= BALANCE.threat.bloodMoonPopulation;
     return Math.round(p);
   }
 
@@ -547,7 +557,9 @@ export class NpcManager {
     let r = n.def.detectRange;
     const night = this.env.isNight();
     if (night) r *= n.def.nocturnal ? 1.35 : 0.75;
-    if (this.env.bloodMoon()) r *= BALANCE.threat.bloodMoonDetect;
+    const det = this.threat().detect;
+    if (det !== 1) r *= det;
+    else if (this.env.bloodMoon()) r *= BALANCE.threat.bloodMoonDetect;
     const b = this.wv.biomeAt(n.x, n.y);
     if (b === 1 || b === 4) r *= 0.8;
     if (n.elite) r *= 1.15;
@@ -572,17 +584,16 @@ export class NpcManager {
     return false;
   }
 
-  private canTargetPlayer(n: Npc, dist: number): boolean {
-    const P = this.env.player;
+  private canTargetPlayer(n: Npc, dist: number, P: PlayerInfo = this.env.player): boolean {
     if (!P.alive) return false;
     const now = this.env.now();
     if ((n.giveUp.get(P.uid) ?? 0) > now) return false;
     const hostile = n.def.temperament === 'predator' || n.def.temperament === 'apex';
     const lure = P.evolving && dist < BALANCE.evolution.lureRadius && (hostile || n.def.temperament === 'territorial');
     if (P.inShelter && !lure) return false;
-    if (n.target !== P && this.countAggroOnPlayer() >= BALANCE.combat.maxPlayerAggressors) return false;
+    if (P === this.env.player && n.target !== P && this.countAggroOnPlayer() >= BALANCE.combat.maxPlayerAggressors) return false;
     if (lure) return true;
-    const blood = this.env.bloodMoon();
+    const blood = this.env.bloodMoon() || this.threat().eliteBonus > 0;
     switch (n.def.temperament) {
       case 'apex':
         return dist < this.detectRange(n) * 0.9;
@@ -608,9 +619,17 @@ export class NpcManager {
     const pd = Math.hypot(P.x - n.x, P.y - n.y);
     let best: Creature | null = null;
     let bestD = Infinity;
-    if (pd < det + 50 && this.canTargetPlayer(n, pd)) {
+    if (pd < det + 50 && this.canTargetPlayer(n, pd, P)) {
       best = P;
       bestD = pd;
+    }
+    for (const ally of this.env.allies?.() ?? []) {
+      if (!ally.alive || ally === P) continue;
+      const d = Math.hypot(ally.x - n.x, ally.y - n.y);
+      if (d < bestD && d < det + 50 && this.canTargetPlayer(n, d, ally)) {
+        best = ally;
+        bestD = d;
+      }
     }
     const hungry = n.hunger < 60;
     for (const o of this.grid.queryRadius(n.x, n.y, det)) {
@@ -1170,7 +1189,8 @@ export class NpcManager {
     const w = n.windup;
     n.windup = null;
     if (!w) return;
-    const p = n.power * (this.env.bloodMoon() ? BALANCE.threat.bloodMoonPower : 1);
+    const pow = this.threat().power;
+    const p = n.power * (pow !== 1 ? pow : this.env.bloodMoon() ? BALANCE.threat.bloodMoonPower : 1);
     if (w.kind === 'ult' && n.def.ult) {
       this.releaseUlt(n, w.dir, p);
       return;

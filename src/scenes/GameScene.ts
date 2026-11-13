@@ -2,16 +2,19 @@ import Phaser from 'phaser';
 import { app, type GameStartData } from '../app';
 import { BALANCE, expToNext } from '../config/balance';
 import { formatClock, formatDuration } from '../core/math';
+import { CONSUMABLES, isConsumable } from '../data/consumables';
 import { FOODS, canEat } from '../data/foods';
 import { MILESTONE_MAP } from '../data/milestones';
 import { NPCS } from '../data/npcs';
+import { primaryQuest } from '../data/quests';
 import { LAST_REALM, REALMS, REALM_PLAYER_BONUS, realmOf, realmSeed } from '../data/realms';
 import { COLOR_VARIANTS, SHOP } from '../data/shop';
 import { SKILLS } from '../data/skills';
 import { getSpecies } from '../data/species';
-import type { SkillDef } from '../data/types';
+import type { BuffDef, SkillDef, StatusKind } from '../data/types';
 import { audio } from '../systems/audio';
-import { addToInventory, applyHeal, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
+import { noteBestiary } from '../systems/bestiary';
+import { addToInventory, applyHeal, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace, takeConsumable } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
 import { SKILL_SLOTS, computeStats, createPlayerState, displayName, finalFormIndex, formOf, isFinalForm, sanitizePlayerName, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
@@ -22,6 +25,7 @@ import { deleteSave, writeSave, type SaveData } from '../systems/save';
 import { DEBUG_ENABLED, saveSettings } from '../systems/settings';
 import { maxStamina, tickSurvival } from '../systems/survival';
 import { WorldClock, WeatherSystem, WEATHER_NAMES } from '../systems/timeWeather';
+import { eventModsForNight, type EventMods } from '../systems/worldEvents';
 import { basicAttackIconUrl, dodgeIconUrl, formatSkillTip, restIconUrl } from '../gfx/skillIcons';
 import { Minimap } from '../ui/Minimap';
 import { esc, type HudData } from '../ui/UI';
@@ -32,7 +36,7 @@ import { generateWorld } from '../world/worldGen';
 import { CombatSystem, type Creature, type DamageEvent } from '../game/CombatSystem';
 import { Effects, FX_DEPTH } from '../game/Effects';
 import { Lighting } from '../game/Lighting';
-import { AI_STATE_NAMES, Npc, NpcManager } from '../game/Npcs';
+import { AI_STATE_NAMES, Npc, NpcManager, type PlayerInfo } from '../game/Npcs';
 import { Player, type PlayerInput } from '../game/Player';
 import { RemotePlayer } from '../game/RemotePlayer';
 import type { Carcass, ResourceNode } from '../game/WorldView';
@@ -109,6 +113,8 @@ export class GameScene extends Phaser.Scene {
   private bloodWarnedNight = -1;
   private bloodActive = false;
   private bloodSurvivedNight = -1;
+  private eventWarnedNight = -1;
+  private bestiaryScanT = 0;
   private remotes = new Map<string, RemotePlayer>();
   private multiOff: (() => void) | null = null;
   private multiJoinOff: (() => void) | null = null;
@@ -151,11 +157,17 @@ export class GameScene extends Phaser.Scene {
     this.bloodWarnedNight = -1;
     this.bloodActive = false;
     this.bloodSurvivedNight = -1;
+    this.eventWarnedNight = -1;
+    this.bestiaryScanT = 0;
     this.remotes.clear();
     this.multiOff = null;
     this.multiJoinOff = null;
     this.multiSendT = 0;
     this.multiMode = false;
+  }
+
+  private currentEvent(): EventMods {
+    return eventModsForNight(this.seed, this.nightIndex, this.clock.isNight);
   }
 
   /** Night counter: the night that starts on day N is night N. */
@@ -203,9 +215,14 @@ export class GameScene extends Phaser.Scene {
       isNight: () => this.clock.isNight,
       days: () => this.player.state.stats.daysSurvived,
       bloodMoon: () => this.bloodMoon,
+      threatBoost: () => {
+        const e = this.currentEvent();
+        return { power: e.power, detect: e.detect, population: e.population, eliteBonus: e.eliteBonus };
+      },
       realm: this.realm,
       player: this.player,
       audio,
+      allies: () => [...this.remotes.values()] as PlayerInfo[],
     });
     this.npcs.bossDefeatedAt = save && !travel ? { ...save.world.bosses } : {};
     this.npcs.onRemoved = (n) => {
@@ -468,7 +485,7 @@ export class GameScene extends Phaser.Scene {
     const dawns = this.clock.update(dt);
     for (let i = 0; i < dawns; i++) this.onDawn();
     if (this.weather.update(dt, this.clock.hour)) app.ui.toast(`Thời tiết: ${WEATHER_NAMES[this.weather.state]}`);
-    this.updateBloodMoon();
+    this.updateWorldEvents(dt);
 
     // --- one-shot keys (gameplay) ---
     const blocked = app.ui.modalOpen || this.dead;
@@ -523,6 +540,7 @@ export class GameScene extends Phaser.Scene {
 
     this.updateEvolution(dt);
     this.npcs.update(dt);
+    this.scanBestiary(dt);
     this.combat.update(dt);
     this.tickMultiplayer(dt);
     this.wv.update(dt, this.clock.time, this.cameras.main);
@@ -617,8 +635,9 @@ export class GameScene extends Phaser.Scene {
     return b === 1 || b === 4;
   }
 
-  private updateBloodMoon(): void {
+  private updateWorldEvents(dt: number): void {
     const night = this.nightIndex;
+    const mods = this.currentEvent();
     const active = this.bloodMoon;
     if (isBloodMoonNight(night) && this.clock.hour >= BALANCE.time.duskHour && this.bloodWarnedNight !== night) {
       this.bloodWarnedNight = night;
@@ -628,11 +647,42 @@ export class GameScene extends Phaser.Scene {
       }
     }
     if (active && !this.bloodActive) {
-      app.ui.toast('🩸 Trăng Máu đã mọc! Thú săn mồi phát hiện bạn từ xa hơn.', 'bad');
+      app.ui.toast(mods.toast || '🩸 Trăng Máu đã mọc! Thú săn mồi phát hiện bạn từ xa hơn.', 'bad');
       audio.play('telegraph');
       this.bloodSurvivedNight = night;
     }
     this.bloodActive = active;
+
+    if (this.clock.isNight && mods.id !== 'none' && mods.id !== 'blood_moon' && this.eventWarnedNight !== night) {
+      this.eventWarnedNight = night;
+      app.ui.toast(`${mods.icon} ${mods.toast}`, mods.id === 'crystal_rain' ? 'good' : 'bad');
+      audio.play('warn');
+    }
+    if (!this.clock.isNight) this.eventWarnedNight = -1;
+
+    const aura = mods.playerAura;
+    const P = this.player;
+    if (aura && P.alive && this.clock.isNight && !P.inShelter && Math.random() < aura.chancePerSec * dt) {
+      P.status.apply(aura.kind, aura.sec, aura.mag, null);
+    }
+  }
+
+  private scanBestiary(dt: number): void {
+    this.bestiaryScanT -= dt;
+    if (this.bestiaryScanT > 0) return;
+    this.bestiaryScanT = 0.55;
+    const P = this.player;
+    if (!P.alive) return;
+    const S = P.state;
+    for (const n of this.npcs.creaturesNear(P.x, P.y, 460)) {
+      if (!n.alive) continue;
+      const r = noteBestiary(S, n.def.id, 'seen');
+      if (!r) continue;
+      S.coins += r.coins;
+      this.gainExp(r.exp);
+      app.ui.toast(`📖 Ghi sổ: ${n.def.name} (+${r.coins} xu)`, 'good');
+      break;
+    }
   }
 
   private inCombat(): boolean {
@@ -717,6 +767,10 @@ export class GameScene extends Phaser.Scene {
       else this.broadcastState(true);
       return;
     }
+    if (msg.t === 'guardian') {
+      if (msg.from === app.multiRoom?.peerId) return;
+      this.applyRemoteGuardian(msg.action, msg.x, msg.y);
+    }
   }
 
   private ensureRemote(peerId: string, speciesId: string, x: number, y: number, name = ''): RemotePlayer {
@@ -764,6 +818,7 @@ export class GameScene extends Phaser.Scene {
       facing: P.facing,
       alive: P.alive,
       name: displayName(P.state),
+      evolving: this.evo.active,
     };
     // Host publishes a rendezvous point so late joiners spawn nearby.
     room.setMeetPoint(P.x, P.y);
@@ -1114,6 +1169,10 @@ export class GameScene extends Phaser.Scene {
     const P = this.player;
     const id = P.state.inventory[i];
     if (!id) return;
+    if (isConsumable(id)) {
+      this.useConsumableSlot(i);
+      return;
+    }
     if (!canEat(P.diet, id)) {
       app.ui.toast(`${FOODS[id].name} không hợp với chế độ ăn của bạn.`, 'bad');
       return;
@@ -1128,6 +1187,68 @@ export class GameScene extends Phaser.Scene {
       if (r.ok) this.afterEat(id, r.hunger, r.maturity, r.heal, P.x, P.y);
     });
     audio.play('eat');
+  }
+
+  private useConsumableSlot(i: number): void {
+    const P = this.player;
+    const id = P.state.inventory[i];
+    if (!id || !isConsumable(id)) return;
+    const def = CONSUMABLES[id];
+    const r = takeConsumable(P.state, i, P.stats.maxHp);
+    if (!r.ok) {
+      app.ui.toast(r.reason ?? 'Không dùng được.', 'bad');
+      return;
+    }
+    audio.play('eat');
+    if (def.clear) for (const k of def.clear) P.status.clear(k as StatusKind);
+    if (def.use === 'tonic' && def.buff) this.applyConsumableBuff(def.buff, def.durationSec ?? 10, def.color);
+    if (def.use === 'bait') this.throwBait(def.durationSec ?? 10);
+    const bits: string[] = [];
+    if (r.heal > 0.5) bits.push(`+${Math.round(r.heal)} máu`);
+    if (r.hunger > 0.5) bits.push(`+${Math.round(r.hunger)} no`);
+    if (def.clear?.includes('poison')) bits.push('hết độc');
+    if (def.clear?.includes('burn')) bits.push('hết bỏng');
+    if (def.use === 'tonic') bits.push(def.name);
+    if (def.use === 'bait') bits.push('mồi đã thả');
+    this.fx.text(P.x, P.y - P.radius * 2.6, bits.join(' · ') || def.name, '#7dffb0', 14);
+    this.fx.burst(P.x, P.y - 8, 'spark', 10, { speed: 70, life: 0.45, tint: def.color });
+    app.ui.toast(`Dùng ${def.name}.`, 'good');
+    if (app.ui.openPanel === 'char') app.ui.refreshChar();
+  }
+
+  private applyConsumableBuff(b: BuffDef, sec: number, color: number): void {
+    const P = this.player;
+    P.buff = {
+      until: this.clock.time + sec,
+      defenseMult: b.defenseMult ?? 1,
+      regen: b.regenFracPerSec ?? 0,
+      speedMult: b.speedMult ?? 1,
+      powerMult: b.powerMult ?? 1,
+      lifesteal: b.lifesteal ?? 0,
+      thorns: b.thorns ?? 0,
+      color,
+    };
+    if (b.cleanse) {
+      P.status.clear();
+      P.stunT = 0;
+    }
+  }
+
+  private throwBait(sec: number): void {
+    const P = this.player;
+    const until = this.clock.time + sec;
+    for (const n of this.npcs.creaturesNear(P.x, P.y, 300)) {
+      if (!n.alive) continue;
+      const t = n.def.temperament;
+      if (t !== 'predator' && t !== 'apex' && t !== 'territorial') continue;
+      n.giveUp.delete(P.uid);
+      n.setState('hunt');
+      n.target = P;
+      n.chaseX = P.x;
+      n.chaseY = P.y;
+      n.hbTimer = Math.max(n.hbTimer, until - this.clock.time);
+    }
+    this.fx.ring(P.x, P.y, 0xc04040, 8, 90, 0.55, 4);
   }
 
   private afterEat(foodId: string, hunger: number, maturity: number, heal: number, x: number, y: number): void {
@@ -1398,6 +1519,12 @@ export class GameScene extends Phaser.Scene {
     this.fx.text(n.x, n.y - n.radius * 2 - 18, `+${r.exp} EXP`, '#ffe08a', 15);
     if (mat > 0.05) this.fx.text(n.x, n.y - n.radius * 2 - 34, `+${mat.toFixed(1)} 🌱`, '#9af07a', 13);
     else if (r.ratio < BALANCE.maturity.killMinPowerRatio) app.ui.toast('Con mồi quá yếu so với bạn — không giúp trưởng thành.', '');
+    const br = noteBestiary(S, n.def.id, 'killed');
+    if (br) {
+      S.coins += br.coins;
+      this.gainExp(br.exp);
+      app.ui.toast(`📖 Lần đầu hạ ${n.def.name}! +${br.coins} xu`, 'good');
+    }
     const H = BALANCE.heal;
     let healFrac = H.killFrac;
     if (n.elite) healFrac += H.killEliteFrac;
@@ -1460,6 +1587,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(400, 0.01);
     audio.play('evolveStart');
     app.ui.toast(`⚠ ${g.name} đã xuất hiện!`, 'bad');
+    this.broadcastGuardian('summon', n.x, n.y);
   }
 
   private onGuardianDefeated(n: Npc): void {
@@ -1473,8 +1601,37 @@ export class GameScene extends Phaser.Scene {
     const gate = this.wv.portal;
     if (gate) this.fx.ring(gate.obj.x, gate.obj.y - 30, 0xc08aff, 12, 200, 1.2, 6);
     app.ui.toast(`👑 Đã hạ ${n.def.name}! +${realm.guardianCoins} xu — Cổng Cổ đã mở.`, 'evo');
+    this.broadcastGuardian('down');
     this.saveNow(false);
     if (this.realm >= LAST_REALM) this.time.delayedCall(1800, () => void this.showVictory());
+  }
+
+  private broadcastGuardian(action: 'summon' | 'down', x?: number, y?: number): void {
+    const room = app.multiRoom;
+    if (!room || !this.multiMode) return;
+    room.send({ t: 'guardian', from: room.peerId, action, x, y });
+  }
+
+  private applyRemoteGuardian(action: 'summon' | 'down', x?: number, y?: number): void {
+    if (action === 'down') {
+      if (!this.guardianDown) {
+        this.guardianDown = true;
+        this.wv.setPortalOpen(true);
+        const g = this.npcs.guardian();
+        if (g) this.npcs.kill(g, this.player);
+        app.ui.toast('👑 Đồng đội đã hạ Boss Giữ Cổng — Cổng Cổ mở!', 'evo');
+      }
+      return;
+    }
+    if (this.guardianDown || this.npcs.guardian()) return;
+    const def = NPCS[realmOf(this.realm).guardian];
+    const gx = x ?? this.wv.portal?.obj.x ?? this.player.x;
+    const gy = y ?? (this.wv.portal?.obj.y ?? this.player.y) - 90;
+    const n = this.npcs.summonGuardian(def, gx, gy);
+    this.lastTarget = n;
+    this.lastTargetAt = this.clock.time;
+    app.ui.toast(`⚠ Đồng đội triệu hồi ${def.name}! Bảo vệ nhau!`, 'bad');
+    audio.play('telegraph');
   }
 
   private async confirmTravel(): Promise<void> {
@@ -1534,7 +1691,14 @@ export class GameScene extends Phaser.Scene {
       () => {
         const S = this.player.state;
         const ctx = this.evoContext();
-        return { state: S, stats: this.player.stats, checks: evolutionChecks(S, ctx), canEvolve: canEvolve(S, ctx) && !this.evo.active, evoDuration: evolutionDuration(S.form) };
+        return {
+          state: S,
+          stats: this.player.stats,
+          checks: evolutionChecks(S, ctx),
+          canEvolve: canEvolve(S, ctx) && !this.evo.active,
+          evoDuration: evolutionDuration(S.form),
+          guardianDown: this.guardianDown,
+        };
       },
       () => void this.requestEvolution(),
       (id, slot) => {
@@ -1569,6 +1733,10 @@ export class GameScene extends Phaser.Scene {
     audio.play('evolveStart');
     audio.setEvolveDrone(true, 0);
     app.ui.toast('Quá trình tiến hóa bắt đầu...', 'evo');
+    if (this.multiMode && this.remotes.size > 0) {
+      app.ui.toast('Đồng đội: hãy bảo vệ người đang tiến hóa!', 'evo');
+      this.broadcastState(true);
+    }
   }
 
   private updateEvolution(dt: number): void {
@@ -1681,6 +1849,19 @@ export class GameScene extends Phaser.Scene {
         S.colorVariant = id;
         this.player.refreshForm();
         audio.play('ui');
+        this.saveNow(false);
+        refresh();
+      },
+      buyConsumable: (id) => {
+        const def = CONSUMABLES[id];
+        if (!def || S.coins < def.cost || !hasInventorySpace(S)) {
+          if (def && S.coins >= def.cost && !hasInventorySpace(S)) app.ui.toast('Túi đầy — mở thêm ô hoặc dùng bớt đồ.', 'bad');
+          return;
+        }
+        if (!addToInventory(S, id)) return;
+        S.coins -= def.cost;
+        audio.play('coin');
+        app.ui.toast(`Mua ${def.name}.`, 'good');
         this.saveNow(false);
         refresh();
       },
@@ -1970,7 +2151,14 @@ export class GameScene extends Phaser.Scene {
     if (P.inSwamp && !getSpecies(S.speciesId).swampWalker && !P.flies) status.push('Lội bùn (chậm)');
     if (P.flies) status.push('Bay lượn');
     else if (P.bipedal) status.push('Đi hai chân');
-    if (this.bloodMoon) status.push('🩸 Trăng Máu');
+    const ev = this.currentEvent();
+    if (ev.id === 'blood_moon') status.push('🩸 Trăng Máu');
+    else if (ev.id !== 'none') status.push(`${ev.icon} ${ev.name}`);
+
+    const q = primaryQuest(S, this.guardianDown);
+    const quest = q
+      ? { title: q.title, progress: q.progress, target: q.target, done: q.done }
+      : null;
 
     const atkColor = Phaser.Display.Color.HexStringToColor(P.species.elementColor).color;
     const basicTip = {
@@ -2067,6 +2255,7 @@ export class GameScene extends Phaser.Scene {
       status,
       warnings,
       target,
+      quest,
     };
   }
 

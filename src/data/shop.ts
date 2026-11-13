@@ -18,6 +18,8 @@ export const SHOP = {
   slotUpgradeCosts: [8, 12, 16, 22],
   markerUnlockCost: 10,
   maxMarkers: 6,
+  /** Consumable stock at the shrine (ids from consumables.ts). */
+  consumableIds: ['binh_giai_doc', 'cao_lam_lanh', 'tonic_suc_manh', 'tonic_giap', 'moi_thit', 'banh_phuc_hoi'] as const,
 };
 
 export function applyVariant(pal: Palette, variantId: string): Palette {
