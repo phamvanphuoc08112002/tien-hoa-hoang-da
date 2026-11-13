@@ -6,6 +6,7 @@ import { SKILLS, skillRoot } from '../data/skills';
 import { SLOT_KEYS, reqLabel, slotUnlocked } from '../systems/skills';
 import { SPECIES, getSpecies } from '../data/species';
 import type { Weather } from '../data/types';
+import { skillIconUrl, formatSkillTip } from '../gfx/skillIcons';
 import { foodIconUrl, speciesPreviewUrl } from '../gfx/textures';
 import type { EvoCheck } from '../systems/evolution';
 import { displayName, isFinalForm, type PlayerState } from '../systems/playerState';
@@ -24,6 +25,10 @@ export interface SkillSlotData {
   cd: number;
   cdLeft: number;
   locked: boolean;
+  /** Data-URL icon for the button (skills / attack / dodge / rest). */
+  icon?: string;
+  /** Long-press tip content. */
+  tip?: { title: string; body: string; meta: string; icon: string } | null;
 }
 
 export interface HudData {
@@ -87,6 +92,7 @@ const TOUCH_HELP: [string, string][] = [
   ['Cần trái', 'Kéo để di chuyển — đẩy hết cỡ sẽ tự chạy'],
   ['Đánh', 'Giữ nút Đánh để đánh liên tục, tự nhắm con gần nhất'],
   ['Q / R / T / Né', 'Chiêu thức và né tránh (nút tròn bên phải)'],
+  ['Giữ chiêu', 'Đè lâu lên nút chiêu để đọc mô tả'],
   ['Nhân vật', 'Chỉ số, chiêu thức, gắn chiêu và tiến hóa'],
   ['Chạy', 'Khóa chạy nhanh (không cần đẩy hết cần)'],
   ['Dùng', 'Ăn / uống / trụ hồi máu — nút sáng khi có việc gần đó'],
@@ -112,6 +118,9 @@ export class UI {
   private charRefresh: (() => CharPanelData) | null = null;
   private charEvolve: (() => void) | null = null;
   private charEquip: ((skillId: string, slot: number) => void) | null = null;
+  private skillTipEl: HTMLElement | null = null;
+  private skillTipHideT = 0;
+  private lastSkillTips: (SkillSlotData['tip'] | null)[] = [];
   touch!: TouchControls;
   nameTags!: NameTags;
   onInvTap: ((slot: number) => void) | null = null;
@@ -467,11 +476,77 @@ export class UI {
     this.hud.querySelectorAll<HTMLElement>('[data-e]').forEach((e) => (this.els[e.dataset.e as string] = e));
     this.toastBox = this.els.toasts;
     this.touch = new TouchControls(this.hud);
+    this.touch.onSkillTip = (tip, anchor) => {
+      if (tip) this.showSkillTip(tip, anchor);
+      else this.hideSkillTip();
+    };
     this.els.inv.addEventListener('click', (e) => {
       const slot = (e.target as HTMLElement).closest('.slot');
       if (slot) this.onInvTap?.(Array.prototype.indexOf.call(this.els.inv.children, slot));
     });
     this.els.prompt.addEventListener('click', () => this.onPromptTap?.());
+  }
+
+  showSkillTip(tip: { title: string; body: string; meta: string; icon: string }, anchor?: DOMRect | null): void {
+    this.hideSkillTip();
+    const el = this.div('skill-tip');
+    el.innerHTML = `
+      <img src="${tip.icon}" alt="">
+      <div class="skill-tip-body">
+        <b>${esc(tip.title)}</b>
+        <p>${esc(tip.body)}</p>
+        <small>${esc(tip.meta)}</small>
+      </div>
+      <button type="button" class="skill-tip-x" aria-label="Đóng">✕</button>`;
+    el.querySelector('.skill-tip-x')?.addEventListener('click', () => this.hideSkillTip());
+    this.hud.append(el);
+    this.skillTipEl = el;
+    if (anchor) {
+      const pad = 8;
+      const maxL = Math.max(pad, Math.min(anchor.left + anchor.width / 2 - 140, window.innerWidth - 292 - pad));
+      const top = Math.max(pad, anchor.top - 12 - 120);
+      el.style.left = `${maxL}px`;
+      el.style.top = `${Math.min(top, window.innerHeight - 140)}px`;
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+      el.style.transform = 'none';
+    }
+    window.clearTimeout(this.skillTipHideT);
+    this.skillTipHideT = window.setTimeout(() => this.hideSkillTip(), 4500);
+  }
+
+  hideSkillTip(): void {
+    window.clearTimeout(this.skillTipHideT);
+    this.skillTipEl?.remove();
+    this.skillTipEl = null;
+  }
+
+  private bindSkillTip(el: HTMLElement, getTip: () => SkillSlotData['tip'] | null | undefined): void {
+    let t = 0;
+    let fired = false;
+    const clear = () => {
+      window.clearTimeout(t);
+      t = 0;
+    };
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      fired = false;
+      clear();
+      t = window.setTimeout(() => {
+        fired = true;
+        const tip = getTip();
+        if (tip) this.showSkillTip(tip, el.getBoundingClientRect());
+      }, 420);
+    });
+    const up = () => clear();
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Swallow click if tip just opened so the slot doesn't feel "used".
+    el.addEventListener('click', (e) => {
+      if (fired) e.stopPropagation();
+    });
   }
 
   showHud(v: boolean): void {
@@ -552,12 +627,22 @@ export class UI {
         })
         .join('');
     }
-    const skKey = d.skills.map((s) => `${s.key}${s.name}${s.locked}`).join('|');
+    this.lastSkillTips = d.skills.map((s) => s.tip ?? null);
+    const skKey = d.skills.map((s) => `${s.key}${s.name}${s.locked}${s.icon ?? ''}`).join('|');
     if (skKey !== this.lastSkills) {
       this.lastSkills = skKey;
       E.skills.innerHTML = d.skills
-        .map((s, i) => `<div class="slot ${s.locked ? 'locked' : ''}" data-sk="${i}"><span class="key">${esc(s.key)}</span><span>${esc(s.name)}</span><div class="cd"></div><div class="cdtxt"></div></div>`)
+        .map((s, i) => {
+          const ico = s.icon
+            ? `<img class="sk-ico" src="${s.icon}" alt="${esc(s.name)}">`
+            : `<span class="sk-name">${esc(s.name)}</span>`;
+          return `<div class="slot ${s.locked ? 'locked' : ''}" data-sk="${i}" title="${esc(s.tip?.title ?? s.name)} — đè lâu để xem"><span class="key">${esc(s.key)}</span>${ico}<div class="cd"></div><div class="cdtxt"></div></div>`;
+        })
         .join('');
+      E.skills.querySelectorAll<HTMLElement>('[data-sk]').forEach((el) => {
+        const i = Number(el.dataset.sk);
+        this.bindSkillTip(el, () => this.lastSkillTips[i] ?? null);
+      });
     }
     d.skills.forEach((s, i) => {
       const el = E.skills.children[i] as HTMLElement | undefined;
@@ -618,6 +703,7 @@ export class UI {
     this.charRefresh = null;
     this.charEvolve = null;
     this.mapRefresh = null;
+    this.hideSkillTip();
   }
 
   private openOverlay(kind: 'char' | 'pause' | 'shop' | 'map', html: string, onClose: () => void = () => this.closeOverlay(), panelClass = ''): HTMLElement {
@@ -756,9 +842,10 @@ export class UI {
       const id = s.skills.find((k) => skillRoot(k) === entry.skill);
       if (!id) {
         const root = SKILLS[entry.skill];
-        return `<div class="skill-row locked"><b>🔒 ${esc(root.name)}</b><br><small>Mở khóa: ${esc(reqLabel(s, entry.req))}</small></div>`;
+        return `<div class="skill-row locked"><img class="sk-ico" src="${skillIconUrl(root.id)}" alt=""><div><b>🔒 ${esc(root.name)}</b><br><small>Mở khóa: ${esc(reqLabel(s, entry.req))}</small></div></div>`;
       }
       const sk = SKILLS[id];
+      const tip = formatSkillTip(sk);
       const slot = s.equipped.indexOf(id);
       const btns = SLOT_KEYS.map((k, i) => {
         const open = slotUnlocked(s, i);
@@ -773,10 +860,10 @@ export class UI {
           <small>Thành thạo ${m}/${sk.mastery} ➜ <b>${esc(next.name)}</b>${formOk ? '' : ` (cần dạng ${(sk.evolveForm ?? 0) + 1})`}</small></div>`;
       } else if (id !== entry.skill) mastery = '<small style="color:#ffd84a">⚡ Đã tiến hóa</small>';
       const tier = id !== entry.skill ? ' ⚡' : '';
-      return `<div class="skill-row"><div class="slot-btns">${btns}</div><b style="color:#${sk.color.toString(16).padStart(6, '0')}">${esc(sk.name)}${tier}</b> — ${esc(sk.desc)}
-        <small>(hồi ${sk.cooldownSec}s, ${sk.stamina} thể lực)</small>${mastery}</div>`;
+      return `<div class="skill-row"><img class="sk-ico" src="${tip.icon}" alt="${esc(sk.name)}"><div class="skill-row-main"><div class="slot-btns">${btns}</div><b style="color:#${sk.color.toString(16).padStart(6, '0')}">${esc(sk.name)}${tier}</b> — ${esc(sk.desc)}
+        <small>(${esc(tip.meta)})</small>${mastery}</div></div>`;
     });
-    const html = `<p style="font-size:12px;color:#a9b0bd;margin:4px 0">Chiêu gắn vào ${SLOT_KEYS.join('/')} — ô ${SLOT_KEYS[2]} mở ở dạng 2. Dùng chiêu trúng địch để tăng thành thạo; đủ thành thạo chiêu sẽ tiến hóa.</p>${rows.join('')}`;
+    const html = `<p style="font-size:12px;color:#a9b0bd;margin:4px 0">Chiêu gắn vào ${SLOT_KEYS.join('/')} — ô ${SLOT_KEYS[2]} mở ở dạng 2. Đè lâu nút chiêu trên màn hình để xem mô tả. Dùng chiêu trúng địch để tăng thành thạo.</p>${rows.join('')}`;
     if (area.dataset.last === html) return;
     area.dataset.last = html;
     area.innerHTML = html;

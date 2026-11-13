@@ -7,6 +7,8 @@ export interface TouchSkillInfo {
   cd: number;
   cdLeft: number;
   locked: boolean;
+  icon?: string;
+  tip?: { title: string; body: string; meta: string; icon: string } | null;
 }
 
 const JOY_RADIUS = 58;
@@ -14,6 +16,9 @@ const DEADZONE = 0.16;
 /** Stick past this magnitude sprints without needing the Chạy toggle. */
 const SPRINT_MAG = 0.78;
 const SKILL_BUTTONS: TouchButton[] = ['attack', 'q', 'r', 't', 'dodge', 'rest'];
+/** Buttons that cast on release and support long-press tip (not hold-to-fire). */
+const TIP_CAST_ON_RELEASE = new Set<string>(['q', 'r', 't']);
+const LONG_MS = 420;
 
 function capture(el: HTMLElement, pointerId: number): void {
   try {
@@ -31,12 +36,17 @@ export class TouchControls {
   my = 0;
   sprint = false;
   attackHeld = false;
+  /** Called when a long-press tip should open/close. */
+  onSkillTip: ((tip: TouchSkillInfo['tip'] | null, anchor?: DOMRect | null) => void) | null = null;
   private pressed = new Set<TouchButton>();
   private joyId: number | null = null;
   private joyOrigin = { x: 0, y: 0 };
   private base!: HTMLElement;
   private knob!: HTMLElement;
   private buttons = new Map<string, HTMLElement>();
+  private skillTips: (TouchSkillInfo['tip'] | null)[] = [];
+  private longT = 0;
+  private longFired = false;
 
   constructor(parent: HTMLElement) {
     this.el = document.createElement('div');
@@ -44,13 +54,13 @@ export class TouchControls {
     this.el.innerHTML = `
       <div class="joy-zone"><div class="joy-base"><div class="joy-knob"></div></div></div>
       <div class="tbtns">
-        <button class="tb big" data-b="attack"><span>Đánh</span><i class="cd"></i></button>
-        <button class="tb" data-b="q"><span>Q</span><i class="cd"></i></button>
-        <button class="tb" data-b="r"><span>R</span><i class="cd"></i></button>
-        <button class="tb" data-b="t"><span>T</span><i class="cd"></i></button>
-        <button class="tb" data-b="dodge"><span>Né</span><i class="cd"></i></button>
+        <button class="tb big" data-b="attack"><img class="tb-ico" alt=""><span>Đánh</span><i class="cd"></i></button>
+        <button class="tb" data-b="q"><img class="tb-ico" alt=""><span class="tb-key">Q</span><i class="cd"></i></button>
+        <button class="tb" data-b="r"><img class="tb-ico" alt=""><span class="tb-key">R</span><i class="cd"></i></button>
+        <button class="tb" data-b="t"><img class="tb-ico" alt=""><span class="tb-key">T</span><i class="cd"></i></button>
+        <button class="tb" data-b="dodge"><img class="tb-ico" alt=""><span>Né</span><i class="cd"></i></button>
         <button class="tb small" data-b="interact"><span>Dùng</span></button>
-        <button class="tb small" data-b="rest"><span>Nghỉ</span><i class="cd"></i></button>
+        <button class="tb small" data-b="rest"><img class="tb-ico" alt=""><span>Nghỉ</span><i class="cd"></i></button>
         <button class="tb small toggle" data-b="sprint" title="Giữ chạy (hoặc đẩy cần hết cỡ)"><span>Chạy</span></button>
       </div>
       <div class="ttop">
@@ -137,6 +147,7 @@ export class TouchControls {
     this.sprint = false;
     this.buttons.get('sprint')?.classList.remove('on');
     this.releaseJoystick();
+    this.clearLong();
   }
 
   setMarkerVisible(v: boolean): void {
@@ -146,16 +157,48 @@ export class TouchControls {
   /** Skills come in HUD order: basic attack, Q, R, T, dodge, rest. */
   updateSkills(skills: TouchSkillInfo[]): void {
     if (!this.enabled) return;
+    this.skillTips = skills.map((s) => s.tip ?? null);
     skills.forEach((s, i) => {
       const id = SKILL_BUTTONS[i];
       const b = id && this.buttons.get(id);
       if (!b) return;
-      const label = id === 'q' || id === 'r' || id === 't' ? (s.locked ? '🔒' : s.name) : id === 'rest' ? s.name : null;
-      const span = b.querySelector('span') as HTMLElement;
-      if (label !== null && span.textContent !== label) span.textContent = label;
+      const img = b.querySelector('.tb-ico') as HTMLImageElement | null;
+      if (img) {
+        if (s.icon) {
+          if (img.getAttribute('src') !== s.icon) img.src = s.icon;
+          img.classList.remove('hidden');
+          img.alt = s.name;
+        } else {
+          img.removeAttribute('src');
+          img.classList.add('hidden');
+        }
+      }
+      const span = b.querySelector('span:not(.tb-key)') as HTMLElement | null;
+      const key = b.querySelector('.tb-key') as HTMLElement | null;
+      if (id === 'q' || id === 'r' || id === 't') {
+        if (key) key.textContent = s.locked ? '🔒' : id.toUpperCase();
+        b.title = s.locked ? s.name : `${s.name} — đè lâu để xem`;
+      } else if (span) {
+        if (id === 'rest' || id === 'attack' || id === 'dodge') {
+          // Keep short label under the icon.
+          const label = id === 'attack' ? 'Đánh' : id === 'dodge' ? 'Né' : s.name;
+          if (span.textContent !== label) span.textContent = label;
+        }
+        b.title = s.tip ? `${s.tip.title} — đè lâu để xem` : s.name;
+      }
       b.classList.toggle('locked', s.locked);
+      b.classList.toggle('has-ico', !!s.icon);
       (b.querySelector('.cd') as HTMLElement).style.height = `${s.locked ? 0 : Math.max(0, Math.min(1, s.cd)) * 100}%`;
     });
+  }
+
+  private clearLong(): void {
+    window.clearTimeout(this.longT);
+    this.longT = 0;
+  }
+
+  private tipIndex(id: string): number {
+    return SKILL_BUTTONS.indexOf(id as TouchButton);
   }
 
   private bindButton(b: HTMLElement, id: string): void {
@@ -164,21 +207,61 @@ export class TouchControls {
       e.stopPropagation();
       capture(b, e.pointerId);
       b.classList.add('down');
+      this.longFired = false;
+      this.clearLong();
+
       if (id === 'attack') {
         this.attackHeld = true;
         this.buzz(8);
-      } else if (id === 'sprint') {
+        // Tip only if held without wanting to interrupt continuous attack too early —
+        // open tip after long press but keep attacking.
+        this.longT = window.setTimeout(() => {
+          this.longFired = true;
+          const tip = this.skillTips[this.tipIndex(id)];
+          if (tip) {
+            this.buzz(10);
+            this.onSkillTip?.(tip, b.getBoundingClientRect());
+          }
+        }, LONG_MS);
+        return;
+      }
+      if (id === 'sprint') {
         this.sprint = !this.sprint;
         b.classList.toggle('on', this.sprint);
-      } else if (id === 'fullscreen') toggleFullscreen();
-      else {
-        this.pressed.add(id as TouchButton);
-        if (id === 'dodge' || id === 'interact') this.buzz(6);
+        return;
       }
+      if (id === 'fullscreen') {
+        toggleFullscreen();
+        return;
+      }
+
+      if (TIP_CAST_ON_RELEASE.has(id) || id === 'dodge' || id === 'rest') {
+        this.longT = window.setTimeout(() => {
+          this.longFired = true;
+          const tip = this.skillTips[this.tipIndex(id)];
+          if (tip) {
+            this.buzz(10);
+            this.onSkillTip?.(tip, b.getBoundingClientRect());
+          }
+        }, LONG_MS);
+        return;
+      }
+
+      this.pressed.add(id as TouchButton);
+      if (id === 'interact') this.buzz(6);
     });
     const up = () => {
       b.classList.remove('down');
       if (id === 'attack') this.attackHeld = false;
+      const wasLong = this.longFired;
+      this.clearLong();
+      if (TIP_CAST_ON_RELEASE.has(id) || id === 'dodge' || id === 'rest') {
+        if (!wasLong) {
+          this.pressed.add(id as TouchButton);
+          if (id === 'dodge') this.buzz(6);
+        }
+      }
+      this.longFired = false;
     };
     b.addEventListener('pointerup', up);
     b.addEventListener('pointercancel', up);
@@ -237,5 +320,4 @@ export class TouchControls {
     this.base.style.left = '';
     this.base.style.top = '';
   }
-
 }

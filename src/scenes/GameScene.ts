@@ -22,6 +22,7 @@ import { deleteSave, writeSave, type SaveData } from '../systems/save';
 import { DEBUG_ENABLED, saveSettings } from '../systems/settings';
 import { maxStamina, tickSurvival } from '../systems/survival';
 import { WorldClock, WeatherSystem, WEATHER_NAMES } from '../systems/timeWeather';
+import { basicAttackIconUrl, dodgeIconUrl, formatSkillTip, restIconUrl } from '../gfx/skillIcons';
 import { Minimap } from '../ui/Minimap';
 import { esc, type HudData } from '../ui/UI';
 import { findDrinkableWater, isPositionFree } from '../world/collision';
@@ -1967,22 +1968,55 @@ export class GameScene extends Phaser.Scene {
     else if (P.bipedal) status.push('Đi hai chân');
     if (this.bloodMoon) status.push('🩸 Trăng Máu');
 
-    const skills = [{ key: 'Chuột', name: f.basic.name, cd: P.cds.fraction('basic'), cdLeft: P.cds.left('basic'), locked: false }];
+    const atkColor = Phaser.Display.Color.HexStringToColor(P.species.elementColor).color;
+    const basicTip = {
+      title: f.basic.name,
+      body: 'Đòn đánh thường cận chiến.',
+      meta: `Hồi ${f.basic.cooldownSec}s · ${f.basic.stamina} thể lực · x${f.basic.dmgMult.toFixed(1)} sát thương`,
+      icon: basicAttackIconUrl(atkColor),
+    };
+    const skills: HudData['skills'] = [
+      {
+        key: 'Chuột',
+        name: f.basic.name,
+        cd: P.cds.fraction('basic'),
+        cdLeft: P.cds.left('basic'),
+        locked: false,
+        icon: basicTip.icon,
+        tip: basicTip,
+      },
+    ];
     for (let i = 0; i < SKILL_SLOTS; i++) {
       const sk = P.skillAt(i);
       const open = slotUnlocked(S, i);
       const key = sk ? Player.cdKey(sk) : '';
+      const tip = sk ? formatSkillTip(sk) : null;
       skills.push({
         key: SLOT_KEYS[i],
         name: !open ? 'Khóa (dạng 2)' : sk ? sk.name : 'Trống',
         cd: sk ? P.cds.fraction(key) : 0,
         cdLeft: sk ? P.cds.left(key) : 0,
         locked: !open || !sk,
+        icon: tip?.icon,
+        tip: tip ?? (!open ? { title: 'Ô chiêu khóa', body: 'Mở khóa ô T khi tiến hóa lên dạng 2.', meta: 'Tiến hóa để mở', icon: basicTip.icon } : null),
       });
     }
+    const dodgeTip = {
+      title: 'Né',
+      body: 'Lướt nhanh theo hướng đang nhìn, tránh đòn đánh.',
+      meta: `Hồi chiêu riêng · tốn thể lực`,
+      icon: dodgeIconUrl(),
+    };
+    const resting = P.rest.mode !== 'awake';
+    const restTip = {
+      title: resting ? 'Đứng dậy' : 'Nghỉ',
+      body: resting ? 'Dừng nằm nghỉ và đứng dậy.' : 'Nằm nghỉ để hồi máu từ từ (an toàn hơn trong nơi trú ẩn).',
+      meta: resting ? 'Nhấn để dậy' : 'Hồi máu khi nghỉ',
+      icon: restIconUrl(!resting),
+    };
     skills.push(
-      { key: 'Space', name: 'Né', cd: P.cds.fraction('dodge'), cdLeft: P.cds.left('dodge'), locked: false },
-      { key: 'F', name: P.rest.mode === 'awake' ? 'Nghỉ' : 'Dậy', cd: 0, cdLeft: 0, locked: false },
+      { key: 'Space', name: 'Né', cd: P.cds.fraction('dodge'), cdLeft: P.cds.left('dodge'), locked: false, icon: dodgeTip.icon, tip: dodgeTip },
+      { key: 'F', name: resting ? 'Dậy' : 'Nghỉ', cd: 0, cdLeft: 0, locked: false, icon: restTip.icon, tip: restTip },
     );
 
     let target: HudData['target'] = null;
