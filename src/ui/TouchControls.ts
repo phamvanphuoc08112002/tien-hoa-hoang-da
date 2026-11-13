@@ -1,3 +1,5 @@
+import { isFullscreen, toggleFullscreen } from './fullscreen';
+
 export type TouchButton = 'attack' | 'q' | 'r' | 't' | 'dodge' | 'interact' | 'rest' | 'char' | 'pause' | 'marker';
 
 export interface TouchSkillInfo {
@@ -63,6 +65,12 @@ export class TouchControls {
     this.el.querySelectorAll<HTMLElement>('[data-b]').forEach((b) => this.buttons.set(b.dataset.b as string, b));
     this.bindJoystick(this.el.querySelector('.joy-zone') as HTMLElement);
     this.buttons.forEach((b, id) => this.bindButton(b, id));
+    const syncFs = () => {
+      const b = this.buttons.get('fullscreen');
+      if (b) b.title = isFullscreen() ? 'Thoát toàn màn hình' : 'Toàn màn hình';
+    };
+    document.addEventListener('fullscreenchange', syncFs);
+    document.addEventListener('webkitfullscreenchange', syncFs);
     // iOS ignores user-scalable=no and pointer-event preventDefault: a long press opens the text
     // magnifier and a quick double tap zooms. Only cancelling the raw touch events stops both.
     const block = (e: Event) => {
@@ -162,7 +170,7 @@ export class TouchControls {
       } else if (id === 'sprint') {
         this.sprint = !this.sprint;
         b.classList.toggle('on', this.sprint);
-      } else if (id === 'fullscreen') this.toggleFullscreen();
+      } else if (id === 'fullscreen') toggleFullscreen();
       else {
         this.pressed.add(id as TouchButton);
         if (id === 'dodge' || id === 'interact') this.buzz(6);
@@ -230,15 +238,4 @@ export class TouchControls {
     this.base.style.top = '';
   }
 
-  private toggleFullscreen(): void {
-    const doc = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
-    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-    if (document.fullscreenElement || doc.webkitFullscreenElement) {
-      if (document.exitFullscreen) void document.exitFullscreen();
-      else doc.webkitExitFullscreen?.();
-      return;
-    }
-    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-    else el.webkitRequestFullscreen?.();
-  }
 }

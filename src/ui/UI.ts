@@ -11,6 +11,7 @@ import type { EvoCheck } from '../systems/evolution';
 import { displayName, isFinalForm, type PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
 import { WEATHER_NAMES } from '../systems/timeWeather';
+import { bindFullscreenButton } from './fullscreen';
 import { NameTags } from './NameTags';
 import { TouchControls } from './TouchControls';
 
@@ -136,6 +137,17 @@ export class UI {
     this.buildHud();
     // After buildHud — it replaces hud.innerHTML and would wipe an earlier mount.
     this.nameTags = new NameTags(this.hud);
+    this.mountFullscreenButton();
+  }
+
+  /** Always-visible corner control (menu + game). Hidden on touch — that layout already has ⛶. */
+  private mountFullscreenButton(): void {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'fs-btn';
+    btn.className = 'fs-btn';
+    this.root.append(btn);
+    bindFullscreenButton(btn, { enter: '⛶', exit: '⛶' });
   }
 
   private div(cls: string, id?: string): HTMLElement {
@@ -182,11 +194,14 @@ export class UI {
         <button data-a="new">Chơi mới</button>
         <button data-a="multi">Chơi mạng</button>
         <button data-a="settings">Cài đặt</button>
+        <button data-a="fullscreen">⛶ Toàn màn hình</button>
         ${o.saveInfo || o.error ? '<button class="danger" data-a="delete">Xóa bản lưu</button>' : ''}
       </div>
       <div class="save-info">${o.saveInfo ? esc(o.saveInfo) : 'Chưa có bản lưu'}</div>
       <div class="save-info">Âm thanh bắt đầu sau lần bấm đầu tiên.</div>`;
     this.menu.querySelector('[data-a=continue]')?.addEventListener('click', o.onContinue);
+    const fsMenu = this.menu.querySelector<HTMLElement>('[data-a=fullscreen]');
+    if (fsMenu) bindFullscreenButton(fsMenu);
     this.menu.querySelector('[data-a=new]')?.addEventListener('click', o.onNew);
     this.menu.querySelector('[data-a=multi]')?.addEventListener('click', o.onMulti);
     this.menu.querySelector('[data-a=delete]')?.addEventListener('click', o.onDeleteSave);
@@ -437,7 +452,7 @@ export class UI {
           <div class="vbar"><span>Trưởng thành</span><div class="track"><div class="fill" data-e="mat" style="background:linear-gradient(90deg,#5ad08a,#c08aff)"></div></div><span class="val" data-e="mat-v"></span></div>
         </div>
       </div>
-      <div class="hint" data-e="hint"><kbd>Tab</kbd>Nhân vật & tiến hóa &nbsp; <kbd>Esc</kbd>Tạm dừng</div>
+      <div class="hint" data-e="hint"><kbd>Tab</kbd>Nhân vật & tiến hóa &nbsp; <kbd>Esc</kbd>Tạm dừng &nbsp; <kbd>⛶</kbd>Toàn màn hình</div>
       <div class="debug hidden" data-e="debug"></div>`;
     this.hud.querySelectorAll<HTMLElement>('[data-e]').forEach((e) => (this.els[e.dataset.e as string] = e));
     this.toastBox = this.els.toasts;
@@ -716,12 +731,14 @@ export class UI {
       ['M', 'Đặt dấu bản đồ (khi đã mở)'],
       ['Tab', 'Nhân vật & tiến hóa'],
       ['Esc', 'Tạm dừng'],
+      ['⛶', 'Toàn màn hình'],
     ];
     const html = `
       <h2>Tạm dừng</h2>
       <div class="row" style="justify-content:flex-start">
         <button class="primary" data-a="resume">Tiếp tục</button>
         <button data-a="save">Lưu game</button>
+        <button data-a="fullscreen">⛶ Toàn màn hình</button>
         <button class="danger" data-a="quit">Lưu & thoát</button>
       </div>
       <h3>Âm thanh & đồ họa</h3>
@@ -734,6 +751,8 @@ export class UI {
     o.querySelector('[data-a=resume]')?.addEventListener('click', cb.resume);
     o.querySelector('[data-a=save]')?.addEventListener('click', cb.save);
     o.querySelector('[data-a=quit]')?.addEventListener('click', cb.quit);
+    const fsPause = o.querySelector<HTMLElement>('[data-a=fullscreen]');
+    if (fsPause) bindFullscreenButton(fsPause);
     if (cb.debug) {
       const dbg = cb.debug;
       const flags = o.querySelector('[data-d=flags]') as HTMLElement;
