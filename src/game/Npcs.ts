@@ -9,7 +9,7 @@ import type { AudioSystem } from '../systems/audio';
 import { powerScore } from '../systems/playerState';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { AFFIXES, AFFIX_IDS, canBeElite, eliteChance, scaleNpc, tierAt, type EliteAffix, type NpcScaling } from '../systems/threat';
-import { isPositionFree, moveCircle } from '../world/collision';
+import { isPositionFree, moveCircle, moveRadiusFor, unstuckCircle } from '../world/collision';
 import { BLK, TT } from '../world/tiles';
 import type { CombatSystem, Creature } from './CombatSystem';
 import type { Effects } from './Effects';
@@ -813,7 +813,8 @@ export class NpcManager {
       n.dash = null;
     } else if (n.dash) {
       n.dash.t -= dt;
-      const r = moveCircle(this.wv.data, n.x, n.y, n.dash.vx * dt, n.dash.vy * dt, n.radius, n.canClimb);
+      const colR = moveRadiusFor(n.radius);
+      const r = moveCircle(this.wv.data, n.x, n.y, n.dash.vx * dt, n.dash.vy * dt, colR, n.canClimb);
       n.x = r.x;
       n.y = r.y;
       if (n.dash.t <= 0 || r.blockedX || r.blockedY) n.dash = null;
@@ -839,12 +840,23 @@ export class NpcManager {
     n.kby *= decay;
     if (Math.abs(n.kbx) < 2) n.kbx = 0;
     if (Math.abs(n.kby) < 2) n.kby = 0;
+    const colR = moveRadiusFor(n.radius);
+    {
+      const u = unstuckCircle(this.wv.data, n.x, n.y, colR, n.canClimb);
+      if (u.moved) {
+        n.x = u.x;
+        n.y = u.y;
+        n.kbx = 0;
+        n.kby = 0;
+        n.dash = null;
+      }
+    }
     if (dx !== 0 || dy !== 0) {
-      const r = moveCircle(this.wv.data, n.x, n.y, dx, dy, n.radius, n.canClimb);
+      const r = moveCircle(this.wv.data, n.x, n.y, dx, dy, colR, n.canClimb);
       if ((r.blockedX || r.blockedY) && n.speedMult > 0) {
         // Simple feeler avoidance: try a side-step direction.
         const ang = Math.atan2(n.moveY, n.moveX) + n.side * 1.1;
-        const r2 = moveCircle(this.wv.data, n.x, n.y, Math.cos(ang) * spd * n.speedMult * dt, Math.sin(ang) * spd * n.speedMult * dt, n.radius, n.canClimb);
+        const r2 = moveCircle(this.wv.data, n.x, n.y, Math.cos(ang) * spd * n.speedMult * dt, Math.sin(ang) * spd * n.speedMult * dt, colR, n.canClimb);
         n.x = r2.x;
         n.y = r2.y;
       } else {
@@ -863,6 +875,11 @@ export class NpcManager {
         if (moved < 6) {
           n.side *= -1;
           n.goal = null;
+          const u = unstuckCircle(this.wv.data, n.x, n.y, colR, n.canClimb, 128);
+          if (u.moved) {
+            n.x = u.x;
+            n.y = u.y;
+          }
           if (n.state === 'seekWater' || n.state === 'seekFood') n.setState('wander');
         }
         n.stuckT = 0;

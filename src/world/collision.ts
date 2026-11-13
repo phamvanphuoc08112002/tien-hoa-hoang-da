@@ -3,6 +3,11 @@ import { BLK, TT, isDrinkableTile, type WorldData } from './tiles';
 
 const T = BALANCE.tile;
 
+/** Collision radius used for walking (visual radius may be larger after evolution). */
+export function moveRadiusFor(visualRadius: number): number {
+  return Math.max(6, Math.min(visualRadius, BALANCE.world.maxMoveRadius));
+}
+
 export function isSolidTile(world: WorldData, tx: number, ty: number, canClimb: boolean): boolean {
   if (tx < 0 || ty < 0 || tx >= world.w || ty >= world.h) return true;
   const b = world.blocked[ty * world.w + tx];
@@ -58,6 +63,35 @@ export function moveCircle(world: WorldData, x: number, y: number, dx: number, d
 
 export function isPositionFree(world: WorldData, x: number, y: number, r: number, canClimb: boolean): boolean {
   return !circleHitsSolid(world, x, y, r, canClimb);
+}
+
+/**
+ * If the circle is embedded in solids (dash / growth / knockback), slide to the
+ * nearest free spot so the creature is never permanently stuck.
+ */
+export function unstuckCircle(
+  world: WorldData,
+  x: number,
+  y: number,
+  r: number,
+  canClimb: boolean,
+  maxDist = 96,
+): { x: number; y: number; moved: boolean } {
+  if (!circleHitsSolid(world, x, y, r, canClimb)) return { x, y, moved: false };
+  // Prefer the center of the current tile first.
+  const cx = Math.floor(x / T) * T + T / 2;
+  const cy = Math.floor(y / T) * T + T / 2;
+  if (!circleHitsSolid(world, cx, cy, r, canClimb)) return { x: cx, y: cy, moved: true };
+  for (let rad = 4; rad <= maxDist; rad += 4) {
+    const steps = Math.max(8, rad);
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const nx = x + Math.cos(a) * rad;
+      const ny = y + Math.sin(a) * rad;
+      if (!circleHitsSolid(world, nx, ny, r, canClimb)) return { x: nx, y: ny, moved: true };
+    }
+  }
+  return { x, y, moved: false };
 }
 
 /** True if no solid object/wall lies on the segment (water and ledges are ignored). */

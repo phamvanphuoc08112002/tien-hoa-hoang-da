@@ -15,6 +15,11 @@ export const BALANCE = {
     spawnMaxWaterSteps: 45,
     shelterSafeRadius: 56,
     chunkTiles: 12,
+    /**
+     * Cap for collision/move radius. Evolved forms are visually larger than a tile;
+     * without a cap they wedge between blockers and cannot walk out.
+     */
+    maxMoveRadius: 14,
   },
 
   time: {

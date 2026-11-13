@@ -8,7 +8,7 @@ import { computeStats, formOf, powerScore, speciesOf, type PlayerState } from '.
 import { equippedSkill } from '../systems/skills';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
 import { RestController, StaminaClock, fatigueSpeedMult } from '../systems/survival';
-import { moveCircle } from '../world/collision';
+import { moveCircle, moveRadiusFor, unstuckCircle } from '../world/collision';
 import { TT, type WorldData } from '../world/tiles';
 import type { CombatSystem, Creature } from './CombatSystem';
 import type { Effects, ParticleKind } from './Effects';
@@ -157,6 +157,10 @@ export class Player implements PlayerInfo {
   }
   get canClimb(): boolean {
     return this.form.canClimbLedges || this.flies;
+  }
+  /** Body size for collisions — capped so large forms still fit between blockers. */
+  get moveRadius(): number {
+    return moveRadiusFor(this.radius);
   }
   get bipedal(): boolean {
     return (this.form.art.features as string[]).includes('biped') || this.flies;
@@ -340,8 +344,21 @@ export class Player implements PlayerInfo {
     this.kby *= decay;
     if (Math.abs(this.kbx) < 2) this.kbx = 0;
     if (Math.abs(this.kby) < 2) this.kby = 0;
+    const colR = this.moveRadius;
+    {
+      const u = unstuckCircle(env.world, this.x, this.y, colR, this.canClimb);
+      if (u.moved) {
+        this.x = u.x;
+        this.y = u.y;
+        this.vx *= 0.3;
+        this.vy *= 0.3;
+        this.kbx = 0;
+        this.kby = 0;
+        if (this.dashT > 0) this.dashT = 0;
+      }
+    }
     if (dx !== 0 || dy !== 0) {
-      const r = moveCircle(env.world, this.x, this.y, dx, dy, this.radius, this.canClimb);
+      const r = moveCircle(env.world, this.x, this.y, dx, dy, colR, this.canClimb);
       this.x = r.x;
       this.y = r.y;
       if (this.dashT > 0 && (r.blockedX || r.blockedY)) this.dashT = 0;

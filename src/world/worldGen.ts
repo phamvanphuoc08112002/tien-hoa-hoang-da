@@ -14,7 +14,8 @@ const N4 = [
   [0, -1],
 ];
 
-const BLOCKING_KINDS: ReadonlySet<ObjKind> = new Set<ObjKind>(['tree', 'pine', 'boulder', 'shrine', 'stone']);
+/** Full-tile blockers. Trees/pines are visual only — dense forests used to trap large forms. */
+const BLOCKING_KINDS: ReadonlySet<ObjKind> = new Set<ObjKind>(['boulder', 'shrine', 'stone']);
 
 export function generateWorld(seed: string, realm = 0): WorldData {
   const G = realmOf(realm).gen;
