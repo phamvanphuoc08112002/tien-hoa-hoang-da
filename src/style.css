@@ -591,6 +591,7 @@ body.touch #hud:not(.hidden) .topright {
   height: 190px;
   image-rendering: pixelated;
   border-radius: 6px;
+  cursor: pointer;
 }
 #hud .clock {
   font-size: 13px;
@@ -598,22 +599,53 @@ body.touch #hud:not(.hidden) .topright {
   gap: 10px;
   align-items: center;
 }
+#hud .resbar {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  min-width: min(440px, 92vw);
+  padding: 8px 12px;
+  border-color: rgba(255, 207, 74, 0.55);
+  background: rgba(14, 18, 26, 0.9);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
 #hud .coin-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  align-self: flex-start;
-  margin: 2px 0 4px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 999px;
-  background: rgba(255, 207, 74, 0.14);
-  border: 1px solid rgba(255, 207, 74, 0.65);
+  background: rgba(255, 207, 74, 0.18);
+  border: 1px solid rgba(255, 207, 74, 0.75);
   color: #ffd84a;
   font-weight: 800;
-  font-size: 14px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+#hud .bag-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd84a;
+  white-space: nowrap;
+}
+#hud .bag-count {
+  color: #c8e2ff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 #hud .bottom {
   position: absolute;
@@ -625,28 +657,6 @@ body.touch #hud:not(.hidden) .topright {
   align-items: center;
   gap: 8px;
   z-index: 5;
-}
-#hud .bag {
-  pointer-events: auto;
-  min-width: min(420px, 92vw);
-  padding: 6px 10px 8px;
-  border-color: rgba(255, 207, 74, 0.45);
-  background: rgba(14, 18, 26, 0.88);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-}
-#hud .bag-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 5px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #ffd84a;
-}
-#hud .bag-count {
-  color: #c8e2ff;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
 }
 #hud .prompt {
   font-size: 15px;
@@ -897,6 +907,34 @@ kbd {
   flex-wrap: wrap;
   justify-content: flex-end;
   margin-top: 14px;
+}
+.panel.map-panel {
+  width: min(920px, 96vw);
+  max-width: min(920px, 96vw);
+  max-height: 96vh;
+  padding: 14px 16px 16px;
+}
+.panel.map-panel .map-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #c8d4e6;
+  line-height: 1.35;
+}
+.panel.map-panel .map-stage {
+  width: 100%;
+  max-height: min(72vh, 640px);
+  overflow: auto;
+  border: 2px solid #3a4860;
+  border-radius: 10px;
+  background: #0a1018;
+  touch-action: none;
+}
+.panel.map-panel canvas.worldmap {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  cursor: crosshair;
 }
 .char-grid {
   display: grid;
@@ -1301,19 +1339,24 @@ body.touch #hud .bottom {
   bottom: 6px;
   gap: 4px;
 }
-body.touch #hud .coin-badge {
-  font-size: 13px;
-  padding: 3px 9px;
-  margin: 1px 0 3px;
-}
-body.touch #hud .bag {
+/* Always-visible coins + food bag above the thumb controls. */
+body.touch #hud .resbar {
+  left: 50%;
+  right: auto;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 168px);
+  transform: translateX(-50%);
+  width: min(94vw, 420px);
   min-width: 0;
-  width: min(320px, 56vw);
-  padding: 5px 8px 6px;
+  padding: 7px 10px;
+  gap: 6px 8px;
+  z-index: 18;
 }
-body.touch #hud .bag-head {
-  font-size: 11px;
-  margin-bottom: 4px;
+body.touch #hud .coin-badge {
+  font-size: 15px;
+  padding: 5px 11px;
+}
+body.touch #hud .bag-meta {
+  font-size: 12px;
 }
 body.touch #hud .xpbars {
   width: min(260px, 34vw);
@@ -1323,13 +1366,14 @@ body.touch #hud .xpbars .vbar {
   white-space: nowrap;
 }
 body.touch .inventory {
-  gap: 4px;
+  gap: 5px;
   flex-wrap: wrap;
   justify-content: center;
+  width: 100%;
 }
 body.touch .inventory .slot {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
 }
 body.touch #hud .prompt {
   font-size: 13px;
@@ -1514,15 +1558,16 @@ body.touch #hud .debug {
   body.touch #hud .clock {
     font-size: 12.5px;
   }
-  body.touch #hud .bag {
-    width: min(420px, 48vw);
+  body.touch #hud .resbar {
+    width: min(460px, 52vw);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 200px);
   }
   body.touch .inventory .slot {
     width: 46px;
     height: 46px;
   }
   body.touch #hud .coin-badge {
-    font-size: 14px;
+    font-size: 16px;
   }
   body.touch .toast {
     font-size: 13.5px;
@@ -1547,64 +1592,190 @@ body.touch #hud .debug {
 }
 @media (max-height: 400px) {
   body.touch #hud canvas.minimap {
-    width: 84px;
-    height: 84px;
-  }
-}
-/* Landscape phone with browser toolbars showing: very little height, so lay the top-right box out sideways. */
-@media (max-height: 340px) {
-  body.touch #hud .topright {
-    display: grid;
-    grid-auto-flow: column;
-    align-items: start;
-    justify-items: end;
-  }
-  body.touch #hud .minimap-wrap {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-  body.touch #hud .clock {
-    grid-column: 1;
-  }
-  body.touch #hud canvas.minimap {
     width: 72px;
     height: 72px;
   }
-  body.touch .tbtns {
-    transform: scale(0.7);
+}
+/*
+ * Landscape phone: keep the center playfield open.
+ * Corners only — shrink frames, hide secondary bars, keep xu/túi visible on top.
+ */
+@media (orientation: landscape) and (max-height: 560px) {
+  body.touch #hud .vitals {
+    width: 132px;
+    padding: 3px 5px;
+    gap: 1px;
+    top: 4px;
+    left: calc(env(safe-area-inset-left, 0px) + 4px);
   }
-  body.touch #hud .bag {
-    width: min(240px, 48vw);
-    padding: 3px 6px 4px;
+  body.touch .vitals .name {
+    font-size: 11px;
+  }
+  body.touch #hud .vitals .status,
+  body.touch #hud .vitals .vbar[data-e='stamina-row'],
+  body.touch #hud .vitals .vbar[data-e='fatigue-row'] {
+    display: none;
+  }
+  body.touch .vbar {
+    grid-template-columns: 0 1fr 28px;
+    gap: 3px;
+    font-size: 9.5px;
+  }
+  body.touch .vbar > span:first-child {
+    overflow: hidden;
+    width: 0;
+    padding: 0;
+  }
+  body.touch .vbar .track {
+    height: 6px;
+  }
+
+  body.touch #hud .topright {
+    top: 4px;
+    right: calc(env(safe-area-inset-right, 0px) + 4px);
+    gap: 2px;
+    max-width: 96px;
+  }
+  body.touch #hud canvas.minimap {
+    width: 56px;
+    height: 56px;
+  }
+  body.touch #hud .clock {
+    font-size: 9px;
+    padding: 1px 5px;
+    gap: 4px;
+  }
+  body.touch #hud .topright .clock:last-child {
+    display: none;
+  }
+
+  body.touch .ttop {
+    top: 4px;
+    left: auto;
+    right: calc(env(safe-area-inset-right, 0px) + 66px);
+    transform: none;
+    gap: 3px;
+  }
+  body.touch .tpill {
+    padding: 3px 7px;
+    font-size: 10px;
+  }
+
+  /*
+   * Xu + túi: under vitals on the left (top-center collided with target/ttop
+   * and base min-width forced the bar off-screen on short landscape phones).
+   */
+  body.touch #hud .resbar {
+    top: 52px;
+    bottom: auto;
+    left: calc(env(safe-area-inset-left, 0px) + 4px);
+    right: auto;
+    transform: none;
+    width: auto;
+    min-width: 0;
+    max-width: min(58vw, 320px);
+    padding: 3px 6px;
+    gap: 4px 6px;
+    z-index: 26;
+    justify-content: flex-start;
+  }
+  body.touch #hud .bag-meta .bag-title {
+    display: none;
+  }
+  body.touch #hud .bag-meta {
+    font-size: 10px;
+  }
+  body.touch #hud .coin-badge {
+    font-size: 12px;
+    padding: 3px 7px;
+  }
+  body.touch .inventory {
+    gap: 3px;
+    width: auto;
   }
   body.touch .inventory .slot {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
-  body.touch #hud .bottom {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  body.touch .inventory .slot img {
+    width: 18px;
   }
+  body.touch .inventory .slot .key {
+    font-size: 8px;
+  }
+
+  /* Hide EXP strip in landscape — still available in Nhân vật. */
   body.touch #hud .xpbars {
-    width: min(220px, 30vw);
+    display: none;
   }
-}
-/* Landscape phone: keep EXP/inventory clear of the right thumb cluster. */
-@media (orientation: landscape) and (max-height: 500px) {
   body.touch #hud .bottom {
-    right: 210px;
-    left: 8px;
+    left: 50%;
+    right: auto;
+    bottom: 4px;
     width: auto;
-    align-items: flex-start;
-  }
-  body.touch #hud .bag {
-    width: min(300px, 46vw);
-    align-self: flex-start;
-  }
-  body.touch #hud .xpbars {
-    width: min(280px, 42vw);
+    transform: translateX(-50%);
+    align-items: center;
   }
   body.touch #hud .prompt {
-    align-self: flex-start;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  body.touch .tbtns {
+    transform: scale(0.62);
+    transform-origin: bottom right;
+    right: calc(env(safe-area-inset-right, 0px) + 2px);
+    bottom: 2px;
+    width: 220px;
+    height: 200px;
+  }
+  body.touch .joy-zone {
+    width: 32%;
+    height: 58%;
+  }
+  body.touch .joy-base {
+    width: 84px;
+    height: 84px;
+    margin: -42px 0 0 -42px;
+    left: calc(env(safe-area-inset-left, 0px) + 62px);
+    top: calc(100% - 64px);
+  }
+  body.touch .joy-knob {
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+  }
+
+  body.touch #hud .target {
+    top: 92px;
+    left: calc(env(safe-area-inset-left, 0px) + 4px);
+    transform: none;
+    width: min(200px, 36vw);
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  body.touch #hud .warnings {
+    top: 4px;
+    left: 50%;
+    width: auto;
+    max-width: 36vw;
+  }
+  body.touch #hud .toasts {
+    top: 4px;
+    max-width: 36vw;
+  }
+  body.touch .warning,
+  body.touch .toast {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+  body.touch #hud .evo {
+    width: min(260px, 36vw);
+    font-size: 11px;
+    top: 40%;
+  }
+  body.touch #hud .debug {
+    display: none;
   }
 }
 @media (max-width: 600px) {
@@ -1653,8 +1824,9 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: 256px;
   }
-  body.touch #hud .bag {
-    width: min(92vw, 420px);
+  body.touch #hud .resbar {
+    width: min(94vw, 420px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 220px);
   }
   body.touch #hud .xpbars {
     width: 76vw;
@@ -1682,12 +1854,13 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 214px);
   }
-  body.touch #hud .bag {
-    width: min(88vw, 360px);
+  body.touch #hud .resbar {
+    width: min(94vw, 380px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 198px);
   }
   body.touch .inventory .slot {
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
   }
   body.touch .tbtns,
   body.touch .joy-zone {
@@ -1699,8 +1872,9 @@ body.touch #hud .debug {
   body.touch #hud .bottom {
     bottom: 300px;
   }
-  body.touch #hud .bag {
-    width: min(76vw, 460px);
+  body.touch #hud .resbar {
+    width: min(80vw, 460px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 280px);
   }
   body.touch #hud .xpbars {
     width: min(76vw, 460px);

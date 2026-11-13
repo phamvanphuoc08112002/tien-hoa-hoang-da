@@ -88,7 +88,7 @@ describe('survival needs', () => {
     const s = createPlayerState('hoa', 0, 0);
     const st = computeStats(s);
     run(3, (dt) => tickSurvival(s, st, formOf(s), dt, ctx({ moving: true, sprinting: true }), new StaminaClock()));
-    expect(s.stamina).toBeLessThan(st.stamina - 40);
+    expect(s.stamina).toBeLessThan(st.stamina - 20);
 
     const a = createPlayerState('hoa', 0, 0);
     const b = createPlayerState('hoa', 0, 0);

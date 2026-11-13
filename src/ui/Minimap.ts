@@ -24,6 +24,10 @@ export interface MinimapDots {
   peers?: { x: number; y: number; ally: boolean }[];
   discovered: Set<number>;
   portalOpen?: boolean;
+  /** Active navigation waypoint (world pixels). */
+  waypoint?: { x: number; y: number } | null;
+  /** Path polyline in world pixels. */
+  path?: { x: number; y: number }[];
 }
 
 /** Pre-rendered terrain image with a cheap dynamic overlay (fog, player, markers). */
@@ -126,6 +130,30 @@ export class Minimap {
       g.lineTo(mx + 3, my);
       g.lineTo(mx, my + 5);
       g.lineTo(mx - 3, my);
+      g.fill();
+    }
+    const path = d.path;
+    if (path && path.length > 1) {
+      g.strokeStyle = 'rgba(90, 208, 255, 0.95)';
+      g.lineWidth = 1.6;
+      g.beginPath();
+      g.moveTo(path[0].x / T, path[0].y / T);
+      for (let i = 1; i < path.length; i++) g.lineTo(path[i].x / T, path[i].y / T);
+      g.stroke();
+    }
+    if (d.waypoint) {
+      const wx = d.waypoint.x / T;
+      const wy = d.waypoint.y / T;
+      g.fillStyle = '#ff9a3a';
+      g.beginPath();
+      g.moveTo(wx, wy - 6);
+      g.lineTo(wx + 4, wy);
+      g.lineTo(wx, wy + 6);
+      g.lineTo(wx - 4, wy);
+      g.fill();
+      g.fillStyle = '#fff6d0';
+      g.beginPath();
+      g.arc(wx, wy, 1.6, 0, Math.PI * 2);
       g.fill();
     }
     for (const p of d.peers ?? []) {

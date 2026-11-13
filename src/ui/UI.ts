@@ -14,6 +14,7 @@ import { WEATHER_NAMES } from '../systems/timeWeather';
 import { bindFullscreenButton } from './fullscreen';
 import { NameTags } from './NameTags';
 import { TouchControls } from './TouchControls';
+import type { Minimap, MinimapDots } from './Minimap';
 
 export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
@@ -90,6 +91,7 @@ const TOUCH_HELP: [string, string][] = [
   ['Chạy', 'Khóa chạy nhanh (không cần đẩy hết cần)'],
   ['Dùng', 'Ăn / uống / trụ hồi máu — nút sáng khi có việc gần đó'],
   ['Ô túi', 'Chạm để ăn đồ mang theo (ăn cũng hồi máu)'],
+  ['Bản đồ nhỏ', 'Chạm để mở bản đồ lớn — đánh dấu và xem đường đi'],
   ['Nghỉ', 'Nằm nghỉ để hồi máu từng chút'],
   ['⛶', 'Toàn màn hình'],
 ];
@@ -102,8 +104,9 @@ export class UI {
   private loading!: HTMLElement;
   private death!: HTMLElement;
   private overlay: HTMLElement | null = null;
-  private overlayKind: 'char' | 'pause' | 'shop' | null = null;
+  private overlayKind: 'char' | 'pause' | 'shop' | 'map' | null = null;
   private dialogOpen = false;
+  private mapRefresh: (() => void) | null = null;
   private toastBox!: HTMLElement;
   private els: Record<string, HTMLElement> = {};
   private charRefresh: (() => CharPanelData) | null = null;
@@ -124,7 +127,7 @@ export class UI {
     return this.overlay !== null || this.dialogOpen || !this.death.classList.contains('hidden');
   }
 
-  get openPanel(): 'char' | 'pause' | 'shop' | null {
+  get openPanel(): 'char' | 'pause' | 'shop' | 'map' | null {
     return this.overlayKind;
   }
 
@@ -426,7 +429,6 @@ export class UI {
     this.hud.innerHTML = `
       <div class="vitals hud-box">
         <div class="name"><span data-e="name"></span><span data-e="lv"></span></div>
-        <div class="coin-badge" data-e="coins" title="Tiền xu">🪙 0</div>
         ${['hp:Máu:#e0524a', 'hunger:Độ no:#ff9a3a', 'thirst:Nước:#4aa8ff', 'stamina:Thể lực:#c8e05a', 'fatigue:Mệt mỏi:#b07aff']
           .map((s) => {
             const [k, l, c] = s.split(':');
@@ -441,18 +443,19 @@ export class UI {
         <div class="hud-box clock"><span data-e="clock"></span><span data-e="weather"></span></div>
         <div class="hud-box clock"><span data-e="biome"></span></div>
       </div>
+      <div class="resbar hud-box">
+        <div class="coin-badge" data-e="coins" title="Tiền xu">🪙 0</div>
+        <div class="bag-meta">
+          <span class="bag-title">Túi đồ ăn</span>
+          <span class="bag-count" data-e="inv-count">0/0</span>
+        </div>
+        <div class="inventory" data-e="inv"></div>
+      </div>
       <div class="warnings" data-e="warnings"></div>
       <div class="toasts" data-e="toasts"></div>
       <div class="evo hud-box hidden" data-e="evo"></div>
       <div class="bottom">
         <div class="prompt hidden" data-e="prompt"></div>
-        <div class="bag hud-box">
-          <div class="bag-head">
-            <span class="bag-title">Túi đồ ăn</span>
-            <span class="bag-count" data-e="inv-count">0/0</span>
-          </div>
-          <div class="inventory" data-e="inv"></div>
-        </div>
         <div class="skillbar" data-e="skills"></div>
         <div class="xpbars">
           <div class="vbar"><span>EXP</span><div class="track"><div class="fill" data-e="exp" style="background:#ffd84a"></div></div><span class="val" data-e="exp-v"></span></div>
@@ -482,7 +485,7 @@ export class UI {
     const cx = box.left + box.width / 2;
     let top = 0;
     let bottom = box.height;
-    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bag, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
+    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .resbar, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0 || r.right < cx - 40 || r.left > cx + 40) return;
       const mid = (r.top + r.bottom) / 2 - box.top;
@@ -614,12 +617,13 @@ export class UI {
     this.overlayKind = null;
     this.charRefresh = null;
     this.charEvolve = null;
+    this.mapRefresh = null;
   }
 
-  private openOverlay(kind: 'char' | 'pause' | 'shop', html: string, onClose: () => void = () => this.closeOverlay()): HTMLElement {
+  private openOverlay(kind: 'char' | 'pause' | 'shop' | 'map', html: string, onClose: () => void = () => this.closeOverlay(), panelClass = ''): HTMLElement {
     this.closeOverlay();
     const o = this.div('overlay');
-    o.innerHTML = `<div class="panel"><button class="panel-x" data-a="x" aria-label="Đóng">✕</button>${html}</div>`;
+    o.innerHTML = `<div class="panel${panelClass ? ` ${panelClass}` : ''}"><button class="panel-x" data-a="x" aria-label="Đóng">✕</button>${html}</div>`;
     o.querySelector('[data-a=x]')?.addEventListener('click', onClose);
     o.addEventListener('click', (e) => {
       if (e.target === o) onClose();
@@ -628,6 +632,59 @@ export class UI {
     this.overlay = o;
     this.overlayKind = kind;
     return o;
+  }
+
+  /** Full-world map: tap to place a navigation mark and show a walkable path. */
+  openWorldMap(opts: {
+    minimap: Minimap;
+    getDots: () => MinimapDots;
+    onMark: (wx: number, wy: number) => void;
+    onClear: () => void;
+  }): void {
+    const html = `
+      <h2>Bản đồ thế giới</h2>
+      <p class="map-hint">Chạm bất kỳ đâu trên bản đồ để đánh dấu. Đường đi đến dấu sẽ hiện màu xanh dương.</p>
+      <div class="map-stage"><canvas class="worldmap" aria-label="Bản đồ đầy đủ"></canvas></div>
+      <div class="row">
+        <button type="button" data-a="clear">Xóa dấu đường đi</button>
+        <button type="button" class="primary" data-a="close">Đóng</button>
+      </div>`;
+    const o = this.openOverlay('map', html, () => this.closeOverlay(), 'map-panel');
+    const canvas = o.querySelector('canvas.worldmap') as HTMLCanvasElement;
+    const src = opts.minimap.canvas;
+    canvas.width = src.width;
+    canvas.height = src.height;
+    const g = canvas.getContext('2d') as CanvasRenderingContext2D;
+    const paint = () => {
+      opts.minimap.draw(opts.getDots());
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.drawImage(src, 0, 0);
+    };
+    paint();
+    this.mapRefresh = paint;
+    const markAt = (clientX: number, clientY: number) => {
+      const r = canvas.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) return;
+      const tx = ((clientX - r.left) / r.width) * canvas.width;
+      const ty = ((clientY - r.top) / r.height) * canvas.height;
+      const T = BALANCE.tile;
+      opts.onMark(tx * T + T / 2, ty * T + T / 2);
+      paint();
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      markAt(e.clientX, e.clientY);
+    });
+    o.querySelector('[data-a=clear]')?.addEventListener('click', () => {
+      opts.onClear();
+      paint();
+    });
+    o.querySelector('[data-a=close]')?.addEventListener('click', () => this.closeOverlay());
+  }
+
+  refreshWorldMap(): void {
+    this.mapRefresh?.();
   }
 
   openChar(getData: () => CharPanelData, onEvolve: () => void, onEquip: (skillId: string, slot: number) => void): void {

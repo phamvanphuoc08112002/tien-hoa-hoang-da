@@ -380,7 +380,7 @@ export class Player implements PlayerInfo {
 
   private startBasic(aim: number, env: PlayerEnv): void {
     const A = this.form.basic;
-    const cost = A.stamina * this.form.staminaCostMult;
+    const cost = A.stamina * this.form.staminaCostMult * BALANCE.combat.staminaCostMult;
     if (this.state.stamina < cost) {
       env.fx.text(this.x, this.y - this.radius * 3, 'Hết thể lực!', '#ffd84a', 13);
       return;
@@ -423,7 +423,7 @@ export class Player implements PlayerInfo {
     if (!sk) return;
     const id = Player.cdKey(sk);
     if (!this.cds.ready(id)) return;
-    const cost = sk.stamina * this.form.staminaCostMult;
+    const cost = sk.stamina * this.form.staminaCostMult * BALANCE.combat.staminaCostMult;
     if (this.state.stamina < cost) {
       env.fx.text(this.x, this.y - this.radius * 3, 'Hết thể lực!', '#ffd84a', 13);
       return;

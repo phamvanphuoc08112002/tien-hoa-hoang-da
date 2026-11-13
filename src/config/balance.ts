@@ -48,11 +48,11 @@ export const BALANCE = {
     criticalLevel: 8,
     /** Fraction of max HP lost per second while starving or dehydrated. */
     starveDamageFracPerSec: 0.012,
-    staminaRegenPerSec: 16,
-    staminaRegenDelaySec: 0.7,
-    sprintStaminaPerSec: 15,
+    staminaRegenPerSec: 22,
+    staminaRegenDelaySec: 0.45,
+    sprintStaminaPerSec: 8,
     sprintSpeedMult: 1.55,
-    restStaminaMult: 2.4,
+    restStaminaMult: 2.6,
     /** Rest only becomes effective after lying still this long (anti toggle-spam). */
     restSettleSec: 1.4,
     restToggleCooldownSec: 0.6,
@@ -89,7 +89,9 @@ export const BALANCE = {
     dodgeDurationSec: 0.2,
     dodgeSpeed: 520,
     dodgeCooldownSec: 1.3,
-    dodgeStamina: 20,
+    dodgeStamina: 12,
+    /** Global multiplier on attack / skill stamina costs. */
+    staminaCostMult: 0.65,
     combatTimeoutSec: 5,
     /** Max NPCs allowed to actively pursue the player at once. */
     maxPlayerAggressors: 4,

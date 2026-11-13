@@ -25,6 +25,7 @@ import { WorldClock, WeatherSystem, WEATHER_NAMES } from '../systems/timeWeather
 import { Minimap } from '../ui/Minimap';
 import { esc, type HudData } from '../ui/UI';
 import { findDrinkableWater, isPositionFree } from '../world/collision';
+import { findPath } from '../world/pathfind';
 import { BIOME_IDS, BIOME_NAMES, type WorldData } from '../world/tiles';
 import { generateWorld } from '../world/worldGen';
 import { CombatSystem, type Creature, type DamageEvent } from '../game/CombatSystem';
@@ -98,6 +99,10 @@ export class GameScene extends Phaser.Scene {
   private padHealFxT = 0;
   private nearHealpad = false;
   private interaction: Interaction | null = null;
+  /** Navigation pin from the full-map UI (world pixels). */
+  private navTarget: { x: number; y: number } | null = null;
+  private navPath: { x: number; y: number }[] = [];
+  private navPathT = 0;
   private debug = { hitbox: false, god: false };
   private discovered = new Set<number>();
   private bloodWarnedNight = -1;
@@ -272,6 +277,13 @@ export class GameScene extends Phaser.Scene {
     app.ui.closeOverlay();
     app.ui.showHud(true);
     app.ui.mountMinimap(this.minimap.canvas);
+    this.minimap.canvas.title = 'Chạm để mở bản đồ lớn';
+    this.minimap.canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.dead || app.ui.modalOpen) return;
+      this.openWorldMap();
+    });
     app.ui.evoProgress(false);
 
     audio.setSettings(app.settings);
@@ -545,6 +557,17 @@ export class GameScene extends Phaser.Scene {
     if (this.minimapT <= 0) {
       this.minimapT = 0.25;
       this.drawMinimap();
+      if (app.ui.openPanel === 'map') app.ui.refreshWorldMap();
+    }
+    this.navPathT -= dt;
+    if (this.navTarget && this.navPathT <= 0) {
+      this.navPathT = 0.6;
+      this.recomputeNavPath(false);
+      if (Math.hypot(P.x - this.navTarget.x, P.y - this.navTarget.y) < 48) {
+        this.navTarget = null;
+        this.navPath = [];
+        app.ui.toast('Đã tới điểm đánh dấu.', 'good');
+      }
     }
     this.charT -= dt;
     if (this.charT <= 0) {
@@ -1228,6 +1251,64 @@ export class GameScene extends Phaser.Scene {
     audio.play('ui');
   }
 
+  private openWorldMap(): void {
+    audio.play('ui');
+    app.ui.openWorldMap({
+      minimap: this.minimap,
+      getDots: () => this.minimapDots(),
+      onMark: (wx, wy) => {
+        this.navTarget = { x: Math.round(wx), y: Math.round(wy) };
+        this.recomputeNavPath(true);
+        this.navPathT = 0.6;
+        audio.play('ui');
+      },
+      onClear: () => {
+        this.navTarget = null;
+        this.navPath = [];
+        app.ui.toast('Đã xóa dấu đường đi.');
+        audio.play('ui');
+      },
+    });
+  }
+
+  private recomputeNavPath(toast: boolean): void {
+    if (!this.navTarget) {
+      this.navPath = [];
+      return;
+    }
+    const path = findPath(this.world, this.player.x, this.player.y, this.navTarget.x, this.navTarget.y, this.player.canClimb);
+    if (!path) {
+      this.navPath = [];
+      if (toast) app.ui.toast('Không tìm được đường đi tới điểm đó.', 'bad');
+      return;
+    }
+    this.navPath = path;
+    if (toast) app.ui.toast('Đã đánh dấu — theo đường xanh trên bản đồ.', 'good');
+  }
+
+  private minimapDots() {
+    const P = this.player;
+    const vision = Lighting.visionRadius(this.clock.hour, this.inFoggyBiome());
+    const hostiles = this.npcs
+      .creaturesNear(P.x, P.y, Math.min(700, vision + 100))
+      .filter((n) => n.alive && (n.def.temperament === 'predator' || n.def.temperament === 'apex' || n.def.temperament === 'territorial'))
+      .map((n) => ({ x: n.x, y: n.y }));
+    const peers = [...this.remotes.values()]
+      .filter((r) => r.alive)
+      .map((r) => ({ x: r.x, y: r.y, ally: r.speciesId === P.speciesId }));
+    return {
+      px: P.x,
+      py: P.y,
+      hostiles,
+      markers: P.state.markers,
+      peers,
+      discovered: this.discovered,
+      portalOpen: this.guardianDown,
+      waypoint: this.navTarget,
+      path: this.navPath,
+    };
+  }
+
   // ------------------------------------------------------------------ combat events
 
   private onDamage(e: DamageEvent): void {
@@ -1823,6 +1904,24 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(0xffffff, 0.9);
       g.fillCircle(m.x, y - 7, 2.5);
     }
+    if (this.navPath.length > 1) {
+      g.lineStyle(2.5, 0x5ad0ff, 0.55);
+      for (let i = 1; i < this.navPath.length; i++) {
+        const a = this.navPath[i - 1];
+        const b = this.navPath[i];
+        g.lineBetween(a.x, a.y, b.x, b.y);
+      }
+    }
+    if (this.navTarget) {
+      const n = this.navTarget;
+      const y = n.y - 28 + Math.sin(t * 3.2) * 3;
+      g.fillStyle(0xff9a3a, 0.95);
+      g.fillTriangle(n.x - 8, y - 12, n.x + 8, y - 12, n.x, y + 3);
+      g.fillStyle(0xfff6d0, 0.95);
+      g.fillCircle(n.x, y - 8, 2.8);
+      g.lineStyle(1.5, 0xff9a3a, 0.35 + Math.sin(t * 4) * 0.1);
+      g.strokeCircle(n.x, n.y, 18 + Math.sin(t * 3) * 3);
+    }
     if (this.debug.hitbox) {
       g.lineStyle(1, 0x00ff00, 1);
       g.strokeCircle(P.x, P.y, P.radius);
@@ -1836,24 +1935,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawMinimap(): void {
-    const P = this.player;
-    const vision = Lighting.visionRadius(this.clock.hour, this.inFoggyBiome());
-    const hostiles = this.npcs
-      .creaturesNear(P.x, P.y, Math.min(700, vision + 100))
-      .filter((n) => n.alive && (n.def.temperament === 'predator' || n.def.temperament === 'apex' || n.def.temperament === 'territorial'))
-      .map((n) => ({ x: n.x, y: n.y }));
-    const peers = [...this.remotes.values()]
-      .filter((r) => r.alive)
-      .map((r) => ({ x: r.x, y: r.y, ally: r.speciesId === P.speciesId }));
-    this.minimap.draw({
-      px: P.x,
-      py: P.y,
-      hostiles,
-      markers: P.state.markers,
-      peers,
-      discovered: this.discovered,
-      portalOpen: this.guardianDown,
-    });
+    this.minimap.draw(this.minimapDots());
   }
 
   private hudData(): HudData {
