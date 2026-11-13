@@ -54,13 +54,13 @@ export class TouchControls {
     this.el.innerHTML = `
       <div class="joy-zone"><div class="joy-base"><div class="joy-knob"></div></div></div>
       <div class="tbtns">
-        <button class="tb big" data-b="attack"><img class="tb-ico" alt=""><span>Đánh</span><i class="cd"></i></button>
-        <button class="tb" data-b="q"><img class="tb-ico" alt=""><span class="tb-key">Q</span><i class="cd"></i></button>
-        <button class="tb" data-b="r"><img class="tb-ico" alt=""><span class="tb-key">R</span><i class="cd"></i></button>
-        <button class="tb" data-b="t"><img class="tb-ico" alt=""><span class="tb-key">T</span><i class="cd"></i></button>
-        <button class="tb" data-b="dodge"><img class="tb-ico" alt=""><span>Né</span><i class="cd"></i></button>
+        <button class="tb big" data-b="attack"><img class="tb-ico" alt=""><span>Đánh</span><i class="cd"></i><b class="cdtxt"></b></button>
+        <button class="tb" data-b="q"><img class="tb-ico" alt=""><span class="tb-key">Q</span><i class="cd"></i><b class="cdtxt"></b></button>
+        <button class="tb" data-b="r"><img class="tb-ico" alt=""><span class="tb-key">R</span><i class="cd"></i><b class="cdtxt"></b></button>
+        <button class="tb" data-b="t"><img class="tb-ico" alt=""><span class="tb-key">T</span><i class="cd"></i><b class="cdtxt"></b></button>
+        <button class="tb" data-b="dodge"><img class="tb-ico" alt=""><span>Né</span><i class="cd"></i><b class="cdtxt"></b></button>
         <button class="tb small" data-b="interact"><span>Dùng</span></button>
-        <button class="tb small" data-b="rest"><img class="tb-ico" alt=""><span>Nghỉ</span><i class="cd"></i></button>
+        <button class="tb small" data-b="rest"><img class="tb-ico" alt=""><span>Nghỉ</span><i class="cd"></i><b class="cdtxt"></b></button>
         <button class="tb small toggle" data-b="sprint" title="Giữ chạy (hoặc đẩy cần hết cỡ)"><span>Chạy</span></button>
       </div>
       <div class="ttop">
@@ -188,7 +188,12 @@ export class TouchControls {
       }
       b.classList.toggle('locked', s.locked);
       b.classList.toggle('has-ico', !!s.icon);
+      b.classList.toggle('on-cd', !s.locked && s.cdLeft > 0.05);
       (b.querySelector('.cd') as HTMLElement).style.height = `${s.locked ? 0 : Math.max(0, Math.min(1, s.cd)) * 100}%`;
+      const cdtxt = b.querySelector('.cdtxt') as HTMLElement | null;
+      if (cdtxt) {
+        cdtxt.textContent = !s.locked && s.cdLeft > 0.05 ? (s.cdLeft >= 10 ? String(Math.ceil(s.cdLeft)) : s.cdLeft.toFixed(1)) : '';
+      }
     });
   }
 

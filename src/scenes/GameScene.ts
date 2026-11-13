@@ -296,12 +296,18 @@ export class GameScene extends Phaser.Scene {
     app.ui.showHud(true);
     app.ui.mountMinimap(this.minimap.canvas);
     this.minimap.canvas.title = 'Chạm để mở bản đồ lớn';
-    this.minimap.canvas.addEventListener('pointerdown', (e) => {
+    const openMap = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
       if (this.dead || app.ui.modalOpen) return;
       this.openWorldMap();
-    });
+    };
+    this.minimap.canvas.addEventListener('pointerdown', openMap);
+    this.minimap.canvas.addEventListener('click', openMap);
+    // Wrap also receives clicks (CSS pointer-events); canvas may miss some touch browsers.
+    const wrap = this.minimap.canvas.parentElement;
+    wrap?.addEventListener('pointerdown', openMap);
+    wrap?.addEventListener('click', openMap);
     app.ui.evoProgress(false);
 
     audio.setSettings(app.settings);
@@ -406,9 +412,15 @@ export class GameScene extends Phaser.Scene {
     const t = this.just('T') || T.take('t');
     const skill = blocked ? -1 : q ? 0 : r ? 1 : t ? 2 : -1;
     const dodge = this.just('SPACE') || T.take('dodge');
+    const attacking = !blocked && (this.attackQueued || T.attackHeld);
+    const lock = this.lockedTarget(skill >= 0 ? 560 : 240);
     let aim: number;
-    if (T.enabled && !this.tapAim) aim = this.autoAim();
-    else {
+    // Skills (and locked basic attacks) snap to the combat target; otherwise mouse / touch auto-aim.
+    if (lock && (skill >= 0 || attacking || T.enabled)) {
+      aim = this.aimAt(lock);
+    } else if (T.enabled && !this.tapAim) {
+      aim = this.autoAim();
+    } else {
       const ptr = this.input.activePointer;
       const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
       aim = Math.atan2(wp.y - (this.player.y - this.player.radius * 0.6), wp.x - this.player.x);
@@ -418,7 +430,7 @@ export class GameScene extends Phaser.Scene {
       my,
       sprint: !blocked && (k.SHIFT.isDown || (T.enabled && T.sprinting)),
       aim,
-      attack: !blocked && (this.attackQueued || T.attackHeld),
+      attack: attacking,
       skill,
       dodge: !blocked && dodge,
     };
@@ -427,27 +439,38 @@ export class GameScene extends Phaser.Scene {
     return inp;
   }
 
+  /** Soft-locked enemy from recent hits; cleared when dead, timed out, or too far. */
+  private lockedTarget(maxDist = 520): Npc | null {
+    const n = this.lastTarget;
+    if (!n?.alive) return null;
+    if (this.clock.time - this.lastTargetAt > 10) return null;
+    if (Math.hypot(n.x - this.player.x, n.y - this.player.y) > maxDist) return null;
+    return n;
+  }
+
+  private aimAt(c: Creature): number {
+    const P = this.player;
+    return Math.atan2(c.y - c.radius * 0.6 - (P.y - P.radius * 0.6), c.x - P.x);
+  }
+
   /** Touch aiming: nearest creature in reach (last target first), else the movement direction. */
   private autoAim(): number {
     const P = this.player;
-    const oy = P.y - P.radius * 0.6;
-    const reach = 200;
+    const reach = 220;
+    const lock = this.lockedTarget(reach);
+    if (lock) return this.aimAt(lock);
     let best: Creature | null = null;
-    if (this.lastTarget?.alive && Math.hypot(this.lastTarget.x - P.x, this.lastTarget.y - P.y) <= reach) best = this.lastTarget;
-    else {
-      let bd = reach;
-      for (const n of this.creaturesNear(P.x, P.y, reach)) {
-        if (n === P || !n.alive) continue;
-        // Prefer hostile targets (not same-species allies).
-        if (n.speciesId && n.speciesId === P.speciesId) continue;
-        const d = Math.hypot(n.x - P.x, n.y - P.y);
-        if (d < bd) {
-          bd = d;
-          best = n;
-        }
+    let bd = reach;
+    for (const n of this.creaturesNear(P.x, P.y, reach)) {
+      if (n === P || !n.alive) continue;
+      if (n.speciesId && n.speciesId === P.speciesId) continue;
+      const d = Math.hypot(n.x - P.x, n.y - P.y);
+      if (d < bd) {
+        bd = d;
+        best = n;
       }
     }
-    if (best) return Math.atan2(best.y - best.radius * 0.6 - oy, best.x - P.x);
+    if (best) return this.aimAt(best);
     return this.moveAim;
   }
 
@@ -499,7 +522,18 @@ export class GameScene extends Phaser.Scene {
     }
     P.inShelter = !!this.wv.shelterAt(P.x, P.y);
     P.evolving = this.evo.active;
-    P.update(dt, input, { world: this.world, combat: this.combat, fx: this.fx, audio, now: this.clock.time, weather: this.weather.state });
+    P.update(dt, input, {
+      world: this.world,
+      combat: this.combat,
+      fx: this.fx,
+      audio,
+      now: this.clock.time,
+      weather: this.weather.state,
+      skillAim: () => {
+        const lock = this.lockedTarget(560);
+        return lock ? this.aimAt(lock) : null;
+      },
+    });
 
     if (P.alive) {
       const dot = P.status.tick(dt);
@@ -1078,11 +1112,16 @@ export class GameScene extends Phaser.Scene {
     let food: { label: string; dist: number; run: () => void } | null = null;
     const wantHeal = P.hp < P.maxHp * 0.7;
     const canSnackHeal = P.hp < P.maxHp;
-    const carcass = this.wv.carcGrid.nearest(P.x, P.y, reach, (c) => c.portions > 0);
+    // Carcasses often drop outside melee after a skill kill — give a bit more reach.
+    const carcassReach = reach + 36;
+    const carcass = this.wv.carcGrid.nearest(P.x, P.y, carcassReach, (c) => c.portions > 0);
     if (carcass && canEat(diet, 'thit')) {
       const d = Math.hypot(carcass.x - P.x, carcass.y - P.y);
-      if (preferPick && !wantHeal) food = { label: `<kbd>E</kbd>Nhặt Thịt vào túi`, dist: d, run: () => this.pickCarcass(carcass) };
-      else if (!full || canSnackHeal) {
+      const bagOk = hasInventorySpace(S);
+      // Loot into bag first (post-kill); only force-eat when bag is full or desperately hungry/hurt.
+      if (bagOk && (!full || !wantHeal)) {
+        food = { label: `<kbd>E</kbd>Nhặt Thịt vào túi`, dist: d, run: () => this.pickCarcass(carcass) };
+      } else if (!full || canSnackHeal) {
         const f = FOODS.thit;
         const heal = Math.round(f.heal * f.efficiency[diet]);
         food = {
@@ -1159,7 +1198,18 @@ export class GameScene extends Phaser.Scene {
 
   private pickCarcass(c: Carcass): void {
     const S = this.player.state;
-    if (c.portions <= 0 || !addToInventory(S, 'thit')) return;
+    if (c.portions <= 0) {
+      app.ui.toast('Xác đã hết thịt.', '');
+      return;
+    }
+    if (!hasInventorySpace(S)) {
+      app.ui.toast('Túi đầy — ăn thịt tại chỗ hoặc bỏ bớt đồ.', 'bad');
+      return;
+    }
+    if (!addToInventory(S, 'thit')) {
+      app.ui.toast('Không thể cất thịt vào túi.', 'bad');
+      return;
+    }
     this.wv.consumeCarcass(c);
     audio.play('pickup');
     app.ui.toast('Đã cất Thịt vào túi.');
@@ -1201,7 +1251,7 @@ export class GameScene extends Phaser.Scene {
     }
     audio.play('eat');
     if (def.clear) for (const k of def.clear) P.status.clear(k as StatusKind);
-    if (def.use === 'tonic' && def.buff) this.applyConsumableBuff(def.buff, def.durationSec ?? 10, def.color);
+    if (def.use === 'tonic' && def.buff) this.applyConsumableBuff(def.buff, def.durationSec ?? 10, def.color, def.name);
     if (def.use === 'bait') this.throwBait(def.durationSec ?? 10);
     const bits: string[] = [];
     if (r.heal > 0.5) bits.push(`+${Math.round(r.heal)} máu`);
@@ -1216,10 +1266,12 @@ export class GameScene extends Phaser.Scene {
     if (app.ui.openPanel === 'char') app.ui.refreshChar();
   }
 
-  private applyConsumableBuff(b: BuffDef, sec: number, color: number): void {
+  private applyConsumableBuff(b: BuffDef, sec: number, color: number, name = 'Tonic'): void {
     const P = this.player;
     P.buff = {
       until: this.clock.time + sec,
+      duration: sec,
+      name,
       defenseMult: b.defenseMult ?? 1,
       regen: b.regenFracPerSec ?? 0,
       speedMult: b.speedMult ?? 1,
@@ -1232,6 +1284,7 @@ export class GameScene extends Phaser.Scene {
       P.status.clear();
       P.stunT = 0;
     }
+    this.fx.ring(P.x, P.y, color, P.radius * 1.2, P.radius * 2.8, 0.7, 5);
   }
 
   private throwBait(sec: number): void {
@@ -2048,6 +2101,72 @@ export class GameScene extends Phaser.Scene {
     app.ui.nameTags.prune(seen);
   }
 
+  /** Persistent self-buff ring + countdown while a buff is active. */
+  private drawBuffAura(g: Phaser.GameObjects.Graphics): void {
+    const P = this.player;
+    const b = P.buff;
+    if (!P.alive || !b) return;
+    const left = Math.max(0, b.until - this.clock.time);
+    if (left <= 0) return;
+    const t = this.time.now / 1000;
+    const frac = b.duration > 0 ? Math.min(1, left / b.duration) : 0;
+    const r = P.radius * (1.85 + Math.sin(t * 5) * 0.08);
+    const x = P.x;
+    const y = P.y;
+    // Soft fill
+    g.fillStyle(b.color, 0.1 + Math.sin(t * 4) * 0.04);
+    g.fillCircle(x, y, r);
+    // Outer ring
+    g.lineStyle(2.5, b.color, 0.75);
+    g.strokeCircle(x, y, r);
+    g.lineStyle(1.5, 0xffffff, 0.45);
+    g.strokeCircle(x, y, r + 5);
+    // Remaining-duration arc (sweeps down as buff expires)
+    const start = -Math.PI / 2;
+    const end = start + Math.PI * 2 * frac;
+    g.lineStyle(4, b.color, 0.95);
+    g.beginPath();
+    g.arc(x, y, r + 10, start, end, false);
+    g.strokePath();
+    // Orbiting sparks
+    for (let i = 0; i < 3; i++) {
+      const a = t * 2.4 + (i / 3) * Math.PI * 2;
+      g.fillStyle(0xffffff, 0.7);
+      g.fillCircle(x + Math.cos(a) * (r + 10), y + Math.sin(a) * (r + 10), 2.2);
+    }
+  }
+
+  /** Combat lock ring — shown while an enemy is soft-targeted. */
+  private drawTargetReticle(g: Phaser.GameObjects.Graphics): void {
+    const n = this.lockedTarget(700);
+    if (!n) return;
+    const t = this.time.now / 1000;
+    const pulse = 1 + Math.sin(t * 7) * 0.07;
+    const r = Math.max(18, n.radius * 1.4) * pulse;
+    const x = n.x;
+    const y = n.y;
+    g.lineStyle(3, 0xff5a3a, 0.9);
+    g.strokeCircle(x, y, r);
+    g.lineStyle(1.5, 0xffd84a, 0.65 + Math.sin(t * 5) * 0.15);
+    g.strokeCircle(x, y, r + 6);
+    // Rotating corner ticks
+    const tick = r * 0.38;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + t * 1.8;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      const x0 = x + c * (r + 2);
+      const y0 = y + s * (r + 2);
+      const x1 = x + c * (r + 2 + tick);
+      const y1 = y + s * (r + 2 + tick);
+      g.lineStyle(2.5, 0xffcf4a, 0.95);
+      g.lineBetween(x0, y0, x1, y1);
+    }
+    // Ground disc so the lock reads under tall forms
+    g.fillStyle(0xff5a3a, 0.12 + Math.sin(t * 6) * 0.04);
+    g.fillCircle(x, y, r * 0.92);
+  }
+
   private drawOverlay(): void {
     const g = this.overlayG;
     g.clear();
@@ -2055,6 +2174,8 @@ export class GameScene extends Phaser.Scene {
     this.combat.swingVisual(g);
     this.npcs.drawBars(g, this.player.score, this.debug.hitbox);
     this.fx.drawRings(g);
+    this.drawBuffAura(g);
+    this.drawTargetReticle(g);
     const t = this.time.now / 1000;
     // Living aura for terror / mythic forms (and remotes of the same tier).
     const drawAura = (x: number, y: number, radius: number, color: number, burst: boolean) => {
@@ -2137,7 +2258,10 @@ export class GameScene extends Phaser.Scene {
     if (this.nearHealpad) status.push('💊 Trụ hồi máu');
     if (inCombat) status.push('⚔ Chiến đấu');
     if (P.sprinting) status.push('Chạy nhanh');
-    if (P.buff) status.push('Hiệu ứng kỹ năng');
+    if (P.buff) {
+      const left = Math.max(0, P.buff.until - this.clock.time);
+      status.push(`✨ ${P.buff.name} ${left.toFixed(1)}s`);
+    }
     if (S.fatigue >= BALANCE.survival.fatigueExhaustedLevel) status.push('Kiệt sức');
     else if (S.fatigue >= BALANCE.survival.fatigueTiredLevel) status.push('Mệt mỏi (chậm hơn)');
     const warnings: string[] = [];
@@ -2212,8 +2336,8 @@ export class GameScene extends Phaser.Scene {
     );
 
     let target: HudData['target'] = null;
-    const lt = this.lastTarget;
-    if (lt && lt.alive && this.clock.time - this.lastTargetAt < 8 && Math.hypot(lt.x - P.x, lt.y - P.y) < 700) {
+    const lt = this.lockedTarget(700);
+    if (lt) {
       const ratio = lt.score / Math.max(1, P.score);
       const st = lt.status.list().map((k) => STATUS_INFO[k].icon).join('');
       target = {

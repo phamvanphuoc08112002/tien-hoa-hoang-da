@@ -633,7 +633,9 @@ export class UI {
       const el = E.skills.children[i] as HTMLElement | undefined;
       if (!el) return;
       (el.querySelector('.cd') as HTMLElement).style.height = `${s.locked ? 0 : s.cd * 100}%`;
-      (el.querySelector('.cdtxt') as HTMLElement).textContent = s.cdLeft > 0.05 && !s.locked ? s.cdLeft.toFixed(1) : '';
+      const left = s.cdLeft > 0.05 && !s.locked ? (s.cdLeft >= 10 ? String(Math.ceil(s.cdLeft)) : s.cdLeft.toFixed(1)) : '';
+      (el.querySelector('.cdtxt') as HTMLElement).textContent = left;
+      el.classList.toggle('on-cd', !!left);
       el.classList.toggle('ready', !s.locked && s.cd <= 0);
     });
     this.touch.updateSkills(d.skills);

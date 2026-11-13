@@ -32,6 +32,8 @@ export interface PlayerEnv {
   audio: AudioSystem;
   now: number;
   weather: Weather;
+  /** Live combat-lock aim (radians); used when a skill actually fires after windup. */
+  skillAim?: () => number | null;
 }
 
 type ActionKind = 'attack' | 'skill' | 'eat' | 'drink';
@@ -47,6 +49,9 @@ interface Action {
 
 interface Buff {
   until: number;
+  /** Total duration when applied (for ring progress). */
+  duration: number;
+  name: string;
   defenseMult: number;
   regen: number;
   speedMult: number;
@@ -381,9 +386,29 @@ export class Player implements PlayerInfo {
       }
     }
 
-    // buff aura
+    // buff aura — stays visible for the whole buff duration
     if (this.buff) {
-      this.aura.setVisible(true).setPosition(this.x, this.y - this.radius).setScale((this.radius * 3) / 128).setTint(this.buff.color).setAlpha(0.45 + 0.15 * Math.sin(env.now * 8)).setDepth(this.y + 1);
+      const left = Math.max(0, this.buff.until - env.now);
+      const frac = this.buff.duration > 0 ? left / this.buff.duration : 0;
+      const pulse = 0.5 + 0.35 * Math.sin(env.now * 9);
+      const scale = (this.radius * (3.4 + (1 - frac) * 0.4)) / 128;
+      this.aura
+        .setVisible(true)
+        .setPosition(this.x, this.y - this.radius * 0.35)
+        .setScale(scale)
+        .setTint(this.buff.color)
+        .setAlpha(0.35 + pulse * 0.35)
+        .setDepth(this.y + 2);
+      // Soft sparkle trail so the buff stays readable in combat
+      if (Math.random() < dt * 6) {
+        env.fx.burst(this.x + (Math.random() - 0.5) * this.radius * 2.2, this.y - this.radius * (0.4 + Math.random()), 'spark', 1, {
+          speed: 28,
+          life: 0.55,
+          tint: this.buff.color,
+          additive: true,
+          up: 40,
+        });
+      }
     } else this.aura.setVisible(false);
 
     this.pickAnim();
@@ -457,12 +482,20 @@ export class Player implements PlayerInfo {
       additive: true,
       scale: 1.15,
     });
-    this.pendingFire = { t: sk.windupSec, fn: () => this.fireSkill(sk, aim, env) };
+    this.pendingFire = {
+      t: sk.windupSec,
+      fn: () => {
+        const live = env.skillAim?.();
+        this.fireSkill(sk, live ?? aim, env);
+      },
+    };
   }
 
   private fireSkill(sk: SkillDef, aim: number, env: PlayerEnv): void {
     const p = this.power();
     const opts = { status: sk.status ?? null, tag: sk.id };
+    this.facing = Math.cos(aim) >= 0 ? 1 : -1;
+    if (this.action && this.action.kind === 'skill') this.action.dir = aim;
     env.audio.play('skill');
     this.onSkillCast?.(sk);
     const pk = sk.particle as ParticleKind;
@@ -530,8 +563,11 @@ export class Player implements PlayerInfo {
       }
       case 'buff': {
         const b = sk.buff ?? {};
+        const dur = sk.durationSec ?? 5;
         this.buff = {
-          until: env.now + (sk.durationSec ?? 5),
+          until: env.now + dur,
+          duration: dur,
+          name: sk.name,
           defenseMult: b.defenseMult ?? 1,
           regen: b.regenFracPerSec ?? 0,
           speedMult: b.speedMult ?? 1,
@@ -546,6 +582,7 @@ export class Player implements PlayerInfo {
         }
         env.fx.pulse(this.x, this.y, sk.color, 6, 70, 0.65, 0.28);
         env.fx.ring(this.x, this.y, 0xffffff, 4, 46, 0.45, 3);
+        env.fx.ring(this.x, this.y, sk.color, this.radius * 1.2, this.radius * 2.6, 0.7, 5);
         env.fx.burst(this.x, this.y - 10, pk, 22, { speed: 90, life: 0.85, tint: sk.color, additive: true, up: 40, scale: 1.2 });
         env.fx.burst(this.x, this.y - this.radius, 'star', 10, { speed: 50, life: 0.9, tint: sk.color, up: 70, additive: true });
         break;
