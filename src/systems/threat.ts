@@ -39,6 +39,14 @@ export function canBeElite(def: NpcDef): boolean {
   return !def.unique && def.temperament !== 'prey';
 }
 
+/**
+ * Green-ring fight: player power is close enough to win.
+ * Red-ring: enemy is meaningfully stronger — grind levels / weaker prey first.
+ */
+export function canDefeatNpc(playerScore: number, npcScore: number): boolean {
+  return npcScore <= Math.max(1, playerScore) * 1.12;
+}
+
 export function eliteChance(tier: number, bloodMoon: boolean, realm = 0, eliteBonus = 0): number {
   const t = BALANCE.threat;
   return t.eliteChance + t.eliteChancePerTier * tier + (bloodMoon ? 0.1 : 0) + eliteBonus + realmOf(realm).scaling.eliteChance;

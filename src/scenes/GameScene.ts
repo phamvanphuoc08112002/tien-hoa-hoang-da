@@ -20,7 +20,7 @@ import { SKILL_SLOTS, computeStats, createPlayerState, displayName, finalFormInd
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
 import { SLOT_KEYS, addMastery, equipSkill, evolvePending, slotUnlocked, syncLearned, type SkillEvolution } from '../systems/skills';
 import { STATUS_INFO } from '../systems/status';
-import { isBloodMoonNight } from '../systems/threat';
+import { canDefeatNpc, isBloodMoonNight } from '../systems/threat';
 import { deleteSave, writeSave, type SaveData } from '../systems/save';
 import { DEBUG_ENABLED, saveSettings } from '../systems/settings';
 import { maxStamina, tickSurvival } from '../systems/survival';
@@ -2098,6 +2098,34 @@ export class GameScene extends Phaser.Scene {
         p.y,
       );
     }
+
+    // Nearby wild creatures: level + green/red threat so the player knows what to grind.
+    if (P.alive) {
+      const near = this.npcs
+        .creaturesNear(P.x, P.y, 480)
+        .filter((n) => n.alive && n.sprite.visible)
+        .sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))
+        .slice(0, 14);
+      for (const n of near) {
+        const id = `npc:${n.uid}`;
+        seen.add(id);
+        const safe = canDefeatNpc(P.score, n.score);
+        const p = sx(n.x, n.y - n.def.art.size * 2 * (n.elite ? 1.05 : 0.95) - 10);
+        app.ui.nameTags.set(
+          id,
+          {
+            name: n.displayName,
+            level: n.level,
+            hp: n.hp,
+            maxHp: n.maxHp,
+            kind: 'npc',
+            threat: safe ? 'safe' : 'deadly',
+          },
+          p.x,
+          p.y,
+        );
+      }
+    }
     app.ui.nameTags.prune(seen);
   }
 
@@ -2338,15 +2366,15 @@ export class GameScene extends Phaser.Scene {
     let target: HudData['target'] = null;
     const lt = this.lockedTarget(700);
     if (lt) {
-      const ratio = lt.score / Math.max(1, P.score);
+      const safe = canDefeatNpc(P.score, lt.score);
       const st = lt.status.list().map((k) => STATUS_INFO[k].icon).join('');
       target = {
-        name: `${lt.displayName}${lt.enraged ? ' 💢' : ''}${st ? ` ${st}` : ''}`,
+        name: `${lt.displayName}${lt.enraged ? ' 💢' : ''}${st ? ` ${st}` : ''}${safe ? '' : ' · quá mạnh'}`,
         level: lt.level,
         hp: lt.hp,
         maxHp: lt.maxHp,
         state: AI_STATE_NAMES[lt.state],
-        danger: ratio > 1.3 ? '#ff6a5a' : ratio > 0.7 ? '#ffc04a' : '#8ae06a',
+        danger: safe ? '#8ae06a' : '#ff6a5a',
       };
     }
     const locked = BALANCE.maturity.formGainMult[S.form] <= 0;

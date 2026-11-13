@@ -5,6 +5,7 @@ import { SHOP } from '../src/data/shop';
 import { noteBestiary, bestiaryStats } from '../src/systems/bestiary';
 import { addToInventory, takeConsumable } from '../src/systems/diet';
 import { createPlayerState } from '../src/systems/playerState';
+import { canDefeatNpc } from '../src/systems/threat';
 import { eventModsForNight, nightEventId } from '../src/systems/worldEvents';
 
 describe('quests', () => {
@@ -53,6 +54,14 @@ describe('consumables', () => {
     expect(s.inventory[slot]).toBeNull();
     expect(r.heal).toBe(CONSUMABLES.banh_phuc_hoi.heal);
     expect(s.hp).toBe(20 + (CONSUMABLES.banh_phuc_hoi.heal ?? 0));
+  });
+});
+
+describe('threat rings', () => {
+  it('marks equal or weaker foes as beatable and stronger as deadly', () => {
+    expect(canDefeatNpc(100, 100)).toBe(true);
+    expect(canDefeatNpc(100, 110)).toBe(true);
+    expect(canDefeatNpc(100, 130)).toBe(false);
   });
 });
 

@@ -8,7 +8,7 @@ import { npcTextureKey } from '../gfx/textures';
 import type { AudioSystem } from '../systems/audio';
 import { powerScore } from '../systems/playerState';
 import { STATUS_INFO, StatusEffects } from '../systems/status';
-import { AFFIXES, AFFIX_IDS, canBeElite, eliteChance, scaleNpc, tierAt, type EliteAffix, type NpcScaling } from '../systems/threat';
+import { AFFIXES, AFFIX_IDS, canBeElite, canDefeatNpc, eliteChance, scaleNpc, tierAt, type EliteAffix, type NpcScaling } from '../systems/threat';
 import { isPositionFree, moveCircle, moveRadiusFor, unstuckCircle } from '../world/collision';
 import { BLK, TT } from '../world/tiles';
 import type { CombatSystem, Creature } from './CombatSystem';
@@ -1348,27 +1348,44 @@ export class NpcManager {
     const P = this.env.player;
     for (const n of this.npcs) {
       if (!n.alive || !n.sprite.visible) continue;
+      const dist = Math.hypot(n.x - P.x, n.y - P.y);
       if (debug) {
         g.lineStyle(1, 0x00ffff, 0.8);
         g.strokeCircle(n.x, n.y, n.radius);
       }
-      const special = n.elite || n.def.unique;
+      // Threat ring for every nearby creature: green = beatable, red = too strong.
+      if (dist < 560) {
+        const safe = canDefeatNpc(playerScore, n.score);
+        const ring = safe ? 0x4adf6a : 0xff3a3a;
+        const pulse = 1 + Math.sin((n.uid + dist) * 0.02) * 0.03;
+        const rr = n.radius * 1.28 * pulse;
+        g.lineStyle(safe ? 2.4 : 3, ring, safe ? 0.78 : 0.92);
+        g.strokeCircle(n.x, n.y, rr);
+        g.lineStyle(1.2, ring, 0.35);
+        g.strokeCircle(n.x, n.y, rr + 4);
+        if (!safe) {
+          g.fillStyle(0xff3a3a, 0.08);
+          g.fillCircle(n.x, n.y, rr);
+        }
+      }
+
+      const special = n.elite || n.def.unique || n.def.guardian;
       const engaged = n.target === P && (n.state === 'hunt' || n.state === 'fight');
-      const show = n.hbTimer > 0 || engaged || (special && Math.hypot(n.x - P.x, n.y - P.y) < 420);
-      if (!show) continue;
+      const showHp = n.hbTimer > 0 || engaged || (special && dist < 420) || dist < 220;
+      if (!showHp) continue;
       const w = Math.max(28, n.radius * 2.4);
       const y = n.y - n.def.art.size * 2 * 0.85 * (n.elite ? 1.12 : 1) - 6;
-      const ratio = n.score / Math.max(1, playerScore);
-      const col = ratio > 1.3 ? 0xff4a4a : ratio > 0.7 ? 0xffc04a : 0x7ad05a;
+      const safe = canDefeatNpc(playerScore, n.score);
+      const col = safe ? 0x7ad05a : 0xff4a4a;
       g.fillStyle(0x10131a, 0.85);
       g.fillRect(n.x - w / 2 - 1, y - 1, w + 2, 6);
       g.fillStyle(col, 1);
       g.fillRect(n.x - w / 2, y, w * (n.hp / n.maxHp), 4);
       if (special) {
-        g.lineStyle(1, n.def.unique ? 0xff5a4a : 0xffd84a, 1);
+        g.lineStyle(1, n.def.unique || n.def.guardian ? 0xff5a4a : 0xffd84a, 1);
         g.strokeRect(n.x - w / 2 - 1.5, y - 1.5, w + 3, 7);
-        g.fillStyle(n.def.unique ? 0xff5a4a : 0xffd84a, 1);
-        const sx = n.x - w / 2 - 7;
+        g.fillStyle(n.def.unique || n.def.guardian ? 0xff5a4a : 0xffd84a, 1);
+        const sx = n.x + w / 2 + 6;
         const sy = y + 2;
         g.fillTriangle(sx - 3, sy, sx + 3, sy, sx, sy - 5);
         g.fillTriangle(sx - 3, sy - 3, sx + 3, sy - 3, sx, sy + 2);

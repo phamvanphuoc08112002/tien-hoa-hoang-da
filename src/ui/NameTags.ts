@@ -1,12 +1,16 @@
-export type NameTagKind = 'self' | 'ally' | 'enemy';
+export type NameTagKind = 'self' | 'ally' | 'enemy' | 'npc';
 
 export interface NameTagInfo {
   name: string;
-  /** Evolution form index (0-based). */
-  form: number;
+  /** Evolution form index (0-based). Omitted for wild NPCs. */
+  form?: number;
+  /** Combat level shown on wild creatures. */
+  level?: number;
   hp: number;
   maxHp: number;
   kind?: NameTagKind;
+  /** Green = beatable now, red = too strong. */
+  threat?: 'safe' | 'deadly';
 }
 
 /** Crisp HTML labels that float above creatures (Phaser Text is unreadable with pixelArt). */
@@ -27,30 +31,39 @@ export class NameTags {
       el = document.createElement('div');
       el.className = 'name-tag';
       el.innerHTML =
-        `<div class="nt-row"><span class="nt-name"></span><span class="nt-form"></span></div>` +
+        `<div class="nt-row"><span class="nt-lv"></span><span class="nt-name"></span><span class="nt-form"></span></div>` +
         `<div class="nt-hp"><div class="nt-hp-fill"></div></div>`;
       this.root.append(el);
       this.tags.set(id, el);
     }
 
     const kind = info.kind ?? 'self';
-    const formLabel = `Dạng ${info.form + 1}`;
+    const formLabel = info.form !== undefined ? `Dạng ${info.form + 1}` : '';
+    const lvLabel = info.level !== undefined ? `Lv.${info.level}` : '';
     const hpPct = info.maxHp > 0 ? Math.max(0, Math.min(100, (info.hp / info.maxHp) * 100)) : 0;
     const hpTone = hpPct > 55 ? 'ok' : hpPct > 25 ? 'mid' : 'low';
-    const sig = `${info.name}|${formLabel}|${hpPct.toFixed(1)}|${hpTone}|${kind}`;
+    const threat = info.threat ?? '';
+    const sig = `${info.name}|${formLabel}|${lvLabel}|${hpPct.toFixed(1)}|${hpTone}|${kind}|${threat}`;
 
     if (this.last.get(id) !== sig) {
       this.last.set(id, sig);
       const nameEl = el.querySelector('.nt-name') as HTMLElement;
       const formEl = el.querySelector('.nt-form') as HTMLElement;
+      const lvEl = el.querySelector('.nt-lv') as HTMLElement;
       const fill = el.querySelector('.nt-hp-fill') as HTMLElement;
       if (nameEl.textContent !== info.name) nameEl.textContent = info.name;
       if (formEl.textContent !== formLabel) formEl.textContent = formLabel;
+      formEl.style.display = formLabel ? '' : 'none';
+      if (lvEl.textContent !== lvLabel) lvEl.textContent = lvLabel;
+      lvEl.style.display = lvLabel ? '' : 'none';
       fill.style.width = `${hpPct}%`;
       fill.dataset.tone = hpTone;
       el.classList.toggle('ally', kind === 'ally');
       el.classList.toggle('enemy', kind === 'enemy');
       el.classList.toggle('self', kind === 'self');
+      el.classList.toggle('npc', kind === 'npc');
+      el.classList.toggle('safe', threat === 'safe');
+      el.classList.toggle('deadly', threat === 'deadly');
     }
 
     el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
