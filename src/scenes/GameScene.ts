@@ -47,7 +47,7 @@ const MULTI_SEND_HZ = 10;
 const T = BALANCE.tile;
 
 type KeyName =
-  | 'W' | 'A' | 'S' | 'D' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'SHIFT' | 'SPACE' | 'E' | 'F' | 'Q' | 'R' | 'T' | 'M' | 'TAB' | 'ESC'
+  | 'W' | 'A' | 'S' | 'D' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'SHIFT' | 'SPACE' | 'E' | 'F' | 'Q' | 'R' | 'T' | 'M' | 'B' | 'TAB' | 'ESC'
   | 'ONE' | 'TWO' | 'THREE' | 'FOUR' | 'FIVE' | 'SIX' | 'F6' | 'F7' | 'F8' | 'F9';
 
 interface Interaction {
@@ -339,7 +339,7 @@ export class GameScene extends Phaser.Scene {
 
   private setupInput(): void {
     const kb = this.input.keyboard as Phaser.Input.Keyboard.KeyboardPlugin;
-    this.keys = kb.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SHIFT,SPACE,E,F,Q,R,T,M,TAB,ESC,ONE,TWO,THREE,FOUR,FIVE,SIX,F6,F7,F8,F9', true) as Record<KeyName, Phaser.Input.Keyboard.Key>;
+    this.keys = kb.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SHIFT,SPACE,E,F,Q,R,T,M,B,TAB,ESC,ONE,TWO,THREE,FOUR,FIVE,SIX,F6,F7,F8,F9', true) as Record<KeyName, Phaser.Input.Keyboard.Key>;
     this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       audio.unlock();
@@ -599,6 +599,7 @@ export class GameScene extends Phaser.Scene {
       if (this.just(k) && i < P.state.slots && !this.evo.active) this.eatSlot(i);
     });
     if (this.just('M') || T.take('marker')) this.toggleMarker();
+    if (this.just('B')) app.ui.toggleBag();
     if (DEBUG_ENABLED) {
       if (this.just('F6')) this.debug.hitbox = !this.debug.hitbox;
       if (this.just('F7')) this.toggleGod();

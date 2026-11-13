@@ -96,7 +96,7 @@ const TOUCH_HELP: [string, string][] = [
   ['Nhân vật', 'Chỉ số, chiêu thức, gắn chiêu và tiến hóa'],
   ['Chạy', 'Khóa chạy nhanh (không cần đẩy hết cần)'],
   ['Dùng', 'Ăn / uống / trụ hồi máu — nút sáng khi có việc gần đó'],
-  ['Ô túi', 'Chạm để ăn đồ mang theo (ăn cũng hồi máu)'],
+  ['Nút Túi', 'Chạm nút xu/túi để mở túi đồ — chạm ô để ăn'],
   ['Bản đồ nhỏ', 'Chạm để mở bản đồ lớn — đánh dấu và xem đường đi'],
   ['Nghỉ', 'Nằm nghỉ để hồi máu từng chút'],
   ['⛶', 'Toàn màn hình'],
@@ -121,6 +121,7 @@ export class UI {
   private skillTipEl: HTMLElement | null = null;
   private skillTipHideT = 0;
   private lastSkillTips: (SkillSlotData['tip'] | null)[] = [];
+  private bagOpen = false;
   touch!: TouchControls;
   nameTags!: NameTags;
   onInvTap: ((slot: number) => void) | null = null;
@@ -452,13 +453,17 @@ export class UI {
         <div class="hud-box clock"><span data-e="clock"></span><span data-e="weather"></span></div>
         <div class="hud-box clock"><span data-e="biome"></span></div>
       </div>
-      <div class="resbar hud-box">
-        <div class="coin-badge" data-e="coins" title="Tiền xu">🪙 0</div>
-        <div class="bag-meta">
+      <button type="button" class="bag-fab" data-e="bag-fab" aria-expanded="false" title="Mở túi đồ & xu">
+        <span class="coin-badge" data-e="coins">🪙 0</span>
+        <span class="bag-fab-meta">Túi <b data-e="inv-count">0/0</b></span>
+      </button>
+      <div class="resbar hud-box hidden" data-e="resbar">
+        <div class="resbar-head">
           <span class="bag-title">Túi đồ ăn</span>
-          <span class="bag-count" data-e="inv-count">0/0</span>
+          <button type="button" class="resbar-x" data-e="bag-close" aria-label="Đóng túi">✕</button>
         </div>
         <div class="inventory" data-e="inv"></div>
+        <small class="bag-hint">Chạm ô để ăn · phím 1–6 vẫn dùng khi đóng túi</small>
       </div>
       <div class="warnings" data-e="warnings"></div>
       <div class="toasts" data-e="toasts"></div>
@@ -471,7 +476,7 @@ export class UI {
           <div class="vbar"><span>Trưởng thành</span><div class="track"><div class="fill" data-e="mat" style="background:linear-gradient(90deg,#5ad08a,#c08aff)"></div></div><span class="val" data-e="mat-v"></span></div>
         </div>
       </div>
-      <div class="hint" data-e="hint"><kbd>Tab</kbd>Nhân vật & tiến hóa &nbsp; <kbd>Esc</kbd>Tạm dừng &nbsp; <kbd>⛶</kbd>Toàn màn hình</div>
+      <div class="hint" data-e="hint"><kbd>Tab</kbd>Nhân vật &nbsp; <kbd>B</kbd>Túi đồ &nbsp; <kbd>Esc</kbd>Tạm dừng &nbsp; <kbd>⛶</kbd>Toàn màn hình</div>
       <div class="debug hidden" data-e="debug"></div>`;
     this.hud.querySelectorAll<HTMLElement>('[data-e]').forEach((e) => (this.els[e.dataset.e as string] = e));
     this.toastBox = this.els.toasts;
@@ -485,6 +490,22 @@ export class UI {
       if (slot) this.onInvTap?.(Array.prototype.indexOf.call(this.els.inv.children, slot));
     });
     this.els.prompt.addEventListener('click', () => this.onPromptTap?.());
+    this.els['bag-fab'].addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleBag();
+    });
+    this.els['bag-close'].addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleBag(false);
+    });
+  }
+
+  toggleBag(force?: boolean): void {
+    this.bagOpen = force ?? !this.bagOpen;
+    this.els.resbar.classList.toggle('hidden', !this.bagOpen);
+    this.els['bag-fab'].classList.toggle('open', this.bagOpen);
+    this.els['bag-fab'].setAttribute('aria-expanded', this.bagOpen ? 'true' : 'false');
+    this.els['bag-fab'].title = this.bagOpen ? 'Đóng túi đồ' : 'Mở túi đồ & xu';
   }
 
   showSkillTip(tip: { title: string; body: string; meta: string; icon: string }, anchor?: DOMRect | null): void {
@@ -560,7 +581,7 @@ export class UI {
     const cx = box.left + box.width / 2;
     let top = 0;
     let bottom = box.height;
-    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .resbar, .bottom > :not(.prompt), #multi-banner').forEach((el) => {
+    this.hud.querySelectorAll<HTMLElement>('.vitals, .topright, .target, .ttop, .bag-fab, .resbar:not(.hidden), .bottom > :not(.prompt), #multi-banner').forEach((el) => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0 || r.right < cx - 40 || r.left > cx + 40) return;
       const mid = (r.top + r.bottom) / 2 - box.top;
@@ -704,6 +725,7 @@ export class UI {
     this.charEvolve = null;
     this.mapRefresh = null;
     this.hideSkillTip();
+    this.toggleBag(false);
   }
 
   private openOverlay(kind: 'char' | 'pause' | 'shop' | 'map', html: string, onClose: () => void = () => this.closeOverlay(), panelClass = ''): HTMLElement {
@@ -886,6 +908,7 @@ export class UI {
       ['E', 'Ăn / uống / nhặt / trụ hồi máu'],
       ['F', 'Nằm nghỉ (hồi máu dần, ngủ khi mệt)'],
       ['1-6', 'Ăn đồ trong túi (ăn cũng hồi máu)'],
+      ['B', 'Mở / đóng túi đồ & xu'],
       ['M', 'Đặt dấu bản đồ (khi đã mở)'],
       ['Tab', 'Nhân vật & tiến hóa'],
       ['Esc', 'Tạm dừng'],
