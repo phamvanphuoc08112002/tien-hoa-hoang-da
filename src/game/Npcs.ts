@@ -1353,25 +1353,18 @@ export class NpcManager {
         g.lineStyle(1, 0x00ffff, 0.8);
         g.strokeCircle(n.x, n.y, n.radius);
       }
-      // Threat ring for every nearby creature: green = beatable, red = too strong.
-      if (dist < 560) {
+      // Single threat ring: green = beatable, red = too strong.
+      if (dist < 480) {
         const safe = canDefeatNpc(playerScore, n.score);
         const ring = safe ? 0x4adf6a : 0xff3a3a;
-        const pulse = 1 + Math.sin((n.uid + dist) * 0.02) * 0.03;
-        const rr = n.radius * 1.28 * pulse;
-        g.lineStyle(safe ? 2.4 : 3, ring, safe ? 0.78 : 0.92);
-        g.strokeCircle(n.x, n.y, rr);
-        g.lineStyle(1.2, ring, 0.35);
-        g.strokeCircle(n.x, n.y, rr + 4);
-        if (!safe) {
-          g.fillStyle(0xff3a3a, 0.08);
-          g.fillCircle(n.x, n.y, rr);
-        }
+        g.lineStyle(safe ? 2 : 2.5, ring, safe ? 0.7 : 0.85);
+        g.strokeCircle(n.x, n.y, n.radius * 1.22);
       }
 
       const special = n.elite || n.def.unique || n.def.guardian;
       const engaged = n.target === P && (n.state === 'hunt' || n.state === 'fight');
-      const showHp = n.hbTimer > 0 || engaged || (special && dist < 420) || dist < 220;
+      // HP bar whenever the creature is close, damaged, or fighting — so remaining HP is obvious.
+      const showHp = n.hbTimer > 0 || engaged || (special && dist < 420) || dist < 380;
       if (!showHp) continue;
       const w = Math.max(28, n.radius * 2.4);
       const y = n.y - n.def.art.size * 2 * 0.85 * (n.elite ? 1.12 : 1) - 6;

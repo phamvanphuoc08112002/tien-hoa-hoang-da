@@ -1462,7 +1462,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.navPath = path;
-    if (toast) app.ui.toast('Đã đánh dấu — theo đường xanh trên bản đồ.', 'good');
+    if (toast) app.ui.toast('Đã đánh dấu — theo mũi tên trên mặt đất.', 'good');
   }
 
   private minimapDots() {
@@ -2099,22 +2099,22 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Nearby wild creatures: level + green/red threat so the player knows what to grind.
+    // Nearby wild creatures: compact Lv only (threat color via ring + text).
     if (P.alive) {
       const near = this.npcs
-        .creaturesNear(P.x, P.y, 480)
+        .creaturesNear(P.x, P.y, 360)
         .filter((n) => n.alive && n.sprite.visible)
         .sort((a, b) => Math.hypot(a.x - P.x, a.y - P.y) - Math.hypot(b.x - P.x, b.y - P.y))
-        .slice(0, 14);
+        .slice(0, 8);
       for (const n of near) {
         const id = `npc:${n.uid}`;
         seen.add(id);
         const safe = canDefeatNpc(P.score, n.score);
-        const p = sx(n.x, n.y - n.def.art.size * 2 * (n.elite ? 1.05 : 0.95) - 10);
+        const p = sx(n.x, n.y - n.def.art.size * 2 * (n.elite ? 1.05 : 0.95) - 4);
         app.ui.nameTags.set(
           id,
           {
-            name: n.displayName,
+            name: '',
             level: n.level,
             hp: n.hp,
             maxHp: n.maxHp,
@@ -2127,6 +2127,84 @@ export class GameScene extends Phaser.Scene {
       }
     }
     app.ui.nameTags.prune(seen);
+  }
+
+  /** Ground chevrons along the nav path (instead of a solid line). */
+  private drawNavGroundArrows(g: Phaser.GameObjects.Graphics, t: number): void {
+    const path = this.navPath;
+    if (path.length < 2) return;
+    const P = this.player;
+    const spacing = 52;
+    // Skip segments already behind the player.
+    let start = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < path.length; i++) {
+      const d = Math.hypot(path[i].x - P.x, path[i].y - P.y);
+      if (d < bestD) {
+        bestD = d;
+        start = i;
+      }
+    }
+    if (start > 0) start -= 1;
+
+    let carry = 0;
+    let drawn = 0;
+    const maxArrows = 28;
+    for (let i = Math.max(0, start); i < path.length - 1 && drawn < maxArrows; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 1) continue;
+      const ux = dx / len;
+      const uy = dy / len;
+      const ang = Math.atan2(uy, ux);
+      let d = carry;
+      while (d < len && drawn < maxArrows) {
+        const x = a.x + ux * d;
+        const y = a.y + uy * d;
+        // Only paint arrows near the camera / player to keep the ground readable.
+        if (Math.hypot(x - P.x, y - P.y) < 720) {
+          const pulse = 0.55 + 0.25 * Math.sin(t * 5 - drawn * 0.45);
+          this.drawGroundChevron(g, x, y, ang, pulse);
+          drawn++;
+        }
+        d += spacing;
+      }
+      carry = d - len;
+    }
+  }
+
+  private drawGroundChevron(g: Phaser.GameObjects.Graphics, x: number, y: number, ang: number, alpha: number): void {
+    const tip = 14;
+    const wing = 10;
+    const back = 5;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    // Soft ground shadow
+    g.fillStyle(0x0a1520, alpha * 0.35);
+    g.fillEllipse(x, y + 1, 18, 10);
+    // Main chevron pointing along the path
+    const tx = x + c * tip;
+    const ty = y + s * tip;
+    const lx = x - c * back + s * wing;
+    const ly = y - s * back - c * wing;
+    const rx = x - c * back - s * wing;
+    const ry = y - s * back + c * wing;
+    g.fillStyle(0x5ad0ff, alpha * 0.9);
+    g.fillTriangle(tx, ty, lx, ly, rx, ry);
+    g.fillStyle(0xe8f7ff, alpha * 0.55);
+    const mx = x + c * (tip * 0.25);
+    const my = y + s * (tip * 0.25);
+    g.fillTriangle(
+      mx + c * 6,
+      my + s * 6,
+      x - c * 1 + s * 4.5,
+      y - s * 1 - c * 4.5,
+      x - c * 1 - s * 4.5,
+      y - s * 1 + c * 4.5,
+    );
   }
 
   /** Persistent self-buff ring + countdown while a buff is active. */
@@ -2239,14 +2317,7 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(0xffffff, 0.9);
       g.fillCircle(m.x, y - 7, 2.5);
     }
-    if (this.navPath.length > 1) {
-      g.lineStyle(2.5, 0x5ad0ff, 0.55);
-      for (let i = 1; i < this.navPath.length; i++) {
-        const a = this.navPath[i - 1];
-        const b = this.navPath[i];
-        g.lineBetween(a.x, a.y, b.x, b.y);
-      }
-    }
+    this.drawNavGroundArrows(g, t);
     if (this.navTarget) {
       const n = this.navTarget;
       const y = n.y - 28 + Math.sin(t * 3.2) * 3;
@@ -2256,6 +2327,11 @@ export class GameScene extends Phaser.Scene {
       g.fillCircle(n.x, y - 8, 2.8);
       g.lineStyle(1.5, 0xff9a3a, 0.35 + Math.sin(t * 4) * 0.1);
       g.strokeCircle(n.x, n.y, 18 + Math.sin(t * 3) * 3);
+      // Destination pad on the ground
+      g.fillStyle(0xff9a3a, 0.18 + Math.sin(t * 4) * 0.05);
+      g.fillCircle(n.x, n.y, 16);
+      g.lineStyle(2, 0xff9a3a, 0.55);
+      g.strokeCircle(n.x, n.y, 14 + Math.sin(t * 3) * 2);
     }
     if (this.debug.hitbox) {
       g.lineStyle(1, 0x00ff00, 1);

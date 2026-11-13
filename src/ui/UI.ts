@@ -716,7 +716,7 @@ export class UI {
   }): void {
     const html = `
       <h2>Bản đồ thế giới</h2>
-      <p class="map-hint">Chạm bất kỳ đâu trên bản đồ để đánh dấu. Đường đi đến dấu sẽ hiện màu xanh dương.</p>
+      <p class="map-hint">Chạm bản đồ để đánh dấu. Mũi tên trên mặt đất sẽ dẫn bạn tới điểm đó.</p>
       <div class="map-stage"><canvas class="worldmap" aria-label="Bản đồ đầy đủ"></canvas></div>
       <div class="row">
         <button type="button" data-a="clear">Xóa dấu đường đi</button>
