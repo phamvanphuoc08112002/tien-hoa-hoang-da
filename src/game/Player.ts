@@ -156,7 +156,18 @@ export class Player implements PlayerInfo {
     return powerScore(this.stats.power, this.stats.maxHp);
   }
   get canClimb(): boolean {
-    return this.form.canClimbLedges;
+    return this.form.canClimbLedges || this.flies;
+  }
+  get bipedal(): boolean {
+    return (this.form.art.features as string[]).includes('biped') || this.flies;
+  }
+  get flies(): boolean {
+    return (this.form.art.features as string[]).includes('fly');
+  }
+  /** Visual lift for flying forms (sprite floats above the collision point). */
+  hoverOffset(now = this.scene.time.now): number {
+    if (!this.flies || !this.alive || this.rest.mode !== 'awake') return 0;
+    return 12 + Math.sin(now / 220) * 3.5 + (this.moving ? 2 : 0);
   }
   defense(): number {
     let d = this.stats.defense;
@@ -197,7 +208,7 @@ export class Player implements PlayerInfo {
 
   /** World-space anchor just above the creature head (for HTML name tags). */
   nameAnchorY(): number {
-    return this.y - this.form.art.size * 2.15;
+    return this.y - this.hoverOffset() - this.form.art.size * (this.bipedal ? 2.55 : 2.15);
   }
 
   recomputeStats(): void {
@@ -301,7 +312,7 @@ export class Player implements PlayerInfo {
     if (env.weather === 'rain') speed *= BALANCE.weather.rainSpeedMult;
     if (this.buff) speed *= this.buff.speedMult;
     speed *= this.status.speedMult();
-    if (this.inSwamp && !this.species.swampWalker) speed *= BALANCE.survival.swampSpeedMult;
+    if (this.inSwamp && !this.species.swampWalker && !this.flies) speed *= BALANCE.survival.swampSpeedMult;
     if (this.action) speed *= this.action.moveMult;
     if (this.stunT > 0) speed = 0;
     const tvx = this.moving ? dirX * speed : 0;
@@ -339,13 +350,17 @@ export class Player implements PlayerInfo {
     if (this.action && (this.action.kind === 'attack' || this.action.kind === 'skill')) this.facing = Math.cos(this.action.dir) >= 0 ? 1 : -1;
     else if (Math.abs(this.vx) > 8) this.facing = this.vx > 0 ? 1 : -1;
 
-    // footsteps
+    // footsteps (grounded only — flyers leave a light air trail instead)
     if (this.moving && this.dodgeT <= 0) {
       this.stepT -= dt;
       if (this.stepT <= 0) {
         this.stepT = this.sprinting ? 0.2 : 0.3;
-        env.audio.play('step');
-        env.fx.burst(this.x - this.facing * this.radius * 0.5, this.y, env.weather === 'rain' ? 'drop' : 'dust', 1, { speed: 25, life: 0.35, depth: this.y - 1 });
+        if (this.flies) {
+          env.fx.burst(this.x, this.y - this.hoverOffset() - 6, 'dust', 2, { speed: 18, life: 0.35, tint: 0xffffff });
+        } else {
+          env.audio.play('step');
+          env.fx.burst(this.x - this.facing * this.radius * 0.5, this.y, env.weather === 'rain' ? 'drop' : 'dust', 1, { speed: 25, life: 0.35, depth: this.y - 1 });
+        }
       }
     }
 
@@ -505,8 +520,11 @@ export class Player implements PlayerInfo {
   }
 
   syncSprite(): void {
-    this.sprite.setPosition(this.x, this.y).setFlipX(this.facing < 0).setDepth(this.y + 0.5);
+    const hover = this.hoverOffset();
+    this.sprite.setPosition(this.x, this.y - hover).setFlipX(this.facing < 0).setDepth(this.y + 0.5);
     this.shadow.setPosition(this.x, this.y + 1).setDepth(this.y - 30);
+    this.shadow.setDisplaySize(this.radius * (this.flies ? 2.1 : 2.6), this.radius * (this.flies ? 0.65 : 0.9));
+    this.shadow.setAlpha(this.flies ? 0.45 : 0.7);
     if (this.hurtFlash > 0.15) this.sprite.setTintFill(0xffffff);
     else if (this.iframes > 0 && this.dodgeT <= 0 && this.dashT <= 0) this.sprite.setTint(0xffb0b0).setAlpha(Math.floor(this.scene.time.now / 70) % 2 ? 0.6 : 1);
     else if (!this.evolving) {

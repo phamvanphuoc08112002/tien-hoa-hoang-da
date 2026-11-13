@@ -50,6 +50,9 @@ describe('pacing', () => {
     ['moc', 'herbivore', 'qua'],
     ['hoa', 'carnivore', 'thit'],
     ['thuy', 'omnivore', 'qua'],
+    ['phong', 'omnivore', 'qua'],
+    ['loi', 'carnivore', 'thit'],
+    ['tho', 'herbivore', 'qua'],
   ] as const)('%s reaches form 2 in roughly 8-12 minutes of steady play', (id, diet, food) => {
     const min = minutesToFirstEvolution(id, diet, food);
     expect(min).toBeGreaterThanOrEqual(8);

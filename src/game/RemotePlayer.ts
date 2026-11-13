@@ -67,9 +67,21 @@ export class RemotePlayer implements Creature {
     return getSpecies(this.speciesId).forms[this.form]?.stats.defense ?? 8;
   }
 
+  get flies(): boolean {
+    return (getSpecies(this.speciesId).forms[this.form].art.features as string[]).includes('fly');
+  }
+  get bipedal(): boolean {
+    const feats = getSpecies(this.speciesId).forms[this.form].art.features as string[];
+    return feats.includes('biped') || feats.includes('fly');
+  }
+  hoverOffset(now = this.sprite.scene.time.now): number {
+    if (!this.flies || !this.alive) return 0;
+    return 12 + Math.sin(now / 220) * 3.5;
+  }
+
   applyAppearance(speciesId: string, form: number, variant: string): void {
     const sp = getSpecies(speciesId);
-    const f = Math.max(0, Math.min(2, form));
+    const f = Math.max(0, Math.min(sp.forms.length - 1, form));
     this.speciesId = speciesId;
     this.kind = `remote:${speciesId}`;
     this.form = f;
@@ -79,7 +91,7 @@ export class RemotePlayer implements Creature {
     this.texKey = ensurePlayerTexture(this.sprite.scene, speciesId, f, variant);
     const s = sp.forms[f].art.size * 2;
     this.sprite.setTexture(this.texKey, 0).setOrigin(0.5, (s - 4) / s);
-    this.shadow.setDisplaySize(this.radius * 2.6, this.radius * 0.9);
+    this.shadow.setDisplaySize(this.radius * (this.flies ? 2.1 : 2.6), this.radius * (this.flies ? 0.65 : 0.9));
     this.curAnim = '';
     this.play('idle');
     this.refreshNameTag();
@@ -100,7 +112,8 @@ export class RemotePlayer implements Creature {
   }
 
   nameAnchorY(): number {
-    return this.y - getSpecies(this.speciesId).forms[this.form].art.size * 2.15;
+    const art = getSpecies(this.speciesId).forms[this.form].art;
+    return this.y - this.hoverOffset() - art.size * (this.bipedal ? 2.55 : 2.15);
   }
 
   applyState(msg: PlayerStateMsg): void {
@@ -124,11 +137,12 @@ export class RemotePlayer implements Creature {
     const k = Math.min(1, dt * 14);
     this.x += (this.tx - this.x) * k;
     this.y += (this.ty - this.y) * k;
-    this.sprite.setPosition(this.x, this.y);
+    const hover = this.hoverOffset();
+    this.sprite.setPosition(this.x, this.y - hover);
     this.sprite.setFlipX(this.facing < 0);
     this.sprite.setDepth(this.y);
     this.sprite.setAlpha(this.alive ? 1 : 0.35);
-    this.shadow.setPosition(this.x, this.y).setDepth(this.y - 30).setAlpha(this.sprite.alpha * 0.7);
+    this.shadow.setPosition(this.x, this.y + 1).setDepth(this.y - 30).setAlpha(this.sprite.alpha * (this.flies ? 0.4 : 0.7));
     if (this.iframes > 0) this.iframes = Math.max(0, this.iframes - dt);
   }
 

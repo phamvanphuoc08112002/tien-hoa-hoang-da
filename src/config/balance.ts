@@ -117,9 +117,16 @@ export const BALANCE = {
     eliteExp: 2.5,
     eliteLevel: 3,
     /** Bosses enrage below this HP fraction. */
-    enrageAt: 0.5,
-    enrageSpeed: 1.25,
-    enrageCooldown: 0.6,
+    enrageAt: 0.55,
+    enrageSpeed: 1.35,
+    enrageCd: 0.55,
+    /** Guardians / final boss get a harsher second wind. */
+    guardianEnrageAt: 0.6,
+    guardianEnrageSpeed: 1.45,
+    guardianEnrageCd: 0.48,
+    finalEnrageAt: 0.7,
+    finalEnrageSpeed: 1.55,
+    finalEnrageCd: 0.4,
     /** Every Nth night is a blood moon. */
     bloodMoonEvery: 4,
     bloodMoonPower: 1.25,
@@ -130,7 +137,7 @@ export const BALANCE = {
   progression: {
     expBase: 30,
     expGrowth: 1.32,
-    maxLevel: 30,
+    maxLevel: 40,
     levelHpBonus: 0.06,
     levelPowerBonus: 0.05,
     levelDefenseBonus: 0.04,
@@ -142,8 +149,8 @@ export const BALANCE = {
 
   maturity: {
     max: 100,
-    /** Gain multiplier for each form (form 3 is final and cannot grow further). */
-    formGainMult: [1, 0.6, 0] as number[],
+    /** Gain multiplier for each form (last form cannot grow further). */
+    formGainMult: [1, 0.6, 0.45, 0.3, 0] as number[],
     passivePerSec: 0.045,
     passiveMinNeeds: 50,
     /** Eating while already this full yields no growth. */
@@ -160,14 +167,17 @@ export const BALANCE = {
   },
 
   evolution: {
-    requiredLevel: [5, 10] as number[],
+    /** Required level to evolve from form i → i+1. */
+    requiredLevel: [5, 10, 16, 24] as number[],
     /** Elite kills required as an evolution trial (per form). */
-    requiredElites: [0, 1] as number[],
-    durationSec: [20, 40] as number[],
+    requiredElites: [0, 1, 2, 4] as number[],
+    durationSec: [20, 40, 55, 75] as number[],
     minHunger: 50,
     minThirst: 50,
     /** Glow of evolving attracts predators within this radius. */
     lureRadius: 480,
+    /** Form index required before the realm gate boss can be summoned. */
+    gateForm: 2,
   },
 
   npc: {

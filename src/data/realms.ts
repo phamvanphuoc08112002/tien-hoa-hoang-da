@@ -86,9 +86,9 @@ export const REALMS: RealmDef[] = [
     desc: 'Ranh giới cuối cùng giữa các thế giới. Mọi sinh vật ở đây đều đã được tôi luyện.',
     tint: 0xccc0ec,
     gen: { forestQuantile: 0.5, swampFrac: 0.22, rockBias: 0.08, lakeMult: 1.2, swampAvoid: 0.85, swampPad: 10 },
-    scaling: { hp: 3.6, power: 2.4, defense: 1.85, level: 20, exp: 4.6, eliteChance: 0.16 },
+    scaling: { hp: 4.8, power: 3.1, defense: 2.25, level: 26, exp: 6.2, eliteChance: 0.22 },
     guardian: 'hu_khong_than',
-    guardianCoins: 120,
+    guardianCoins: 180,
   },
 ];
 

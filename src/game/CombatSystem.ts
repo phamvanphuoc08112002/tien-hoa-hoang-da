@@ -17,7 +17,7 @@ export interface Creature {
   isPlayer: boolean;
   /** Species id for NPCs, 'player' for the local player. Same-species NPCs never hurt each other. */
   kind: string;
-  /** Player species line (moc/hoa/thuy). Same id = allies in multiplayer. */
+  /** Player species line (moc/hoa/thuy/phong/loi/tho). Same id = allies in multiplayer. */
   speciesId?: string;
   kbx: number;
   kby: number;

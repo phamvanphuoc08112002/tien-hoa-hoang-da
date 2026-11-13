@@ -247,13 +247,19 @@ export class Renderer3D {
 
   private makeNpcView(n: Npc): NpcView {
     const art = n.def.art;
-    const model = new ChibiModel(art, art.pal);
-    const s = n.affix ? 1.12 : 1;
+    // Bosses build from a larger chibi base so they tower over regular fauna.
+    const base = n.def.unique ? (n.def.id === 'hu_khong_than' ? 2.55 : n.def.guardian ? 2.35 : 2.2) : 1.9;
+    const model = new ChibiModel(art, art.pal, base);
+    let s = 1;
+    if (n.def.id === 'hu_khong_than') s = 1.45;
+    else if (n.def.guardian) s = 1.32;
+    else if (n.def.unique) s = 1.25;
+    else if (n.affix) s = 1.12;
     model.root.scale.setScalar(s);
     this.scene3.add(model.root);
     return {
       model,
-      shadow: this.blob(n.radius),
+      shadow: this.blob(n.radius * (n.def.unique ? 1.15 : 1)),
       key: n.texKey,
       heading: headingToRotY(n.facing, 0),
       lastX: n.x,
@@ -345,7 +351,7 @@ export class Renderer3D {
       }
       const { model, shadow } = v;
       model.root.visible = r.alive;
-      const h = this.hf.standAt(r.x, r.y);
+      const h = this.hf.standAt(r.x, r.y) + r.hoverOffset();
       model.root.position.set(r.x, h, toZ(r.y, h));
       const dx = r.x - v.lastX;
       const dy = r.y - v.lastY;
@@ -360,7 +366,7 @@ export class Renderer3D {
       const anim = (ANIMS.has(r.anim) ? r.anim : 'idle') as ChibiAnim;
       model.update(anim, dt, t, 1);
       model.setTint(null, false, r.sprite.alpha);
-      this.placeBlob(shadow, r.x, r.y, h, r.radius, r.sprite.alpha);
+      this.placeBlob(shadow, r.x, r.y, this.hf.standAt(r.x, r.y), r.radius, r.sprite.alpha);
     }
   }
 
@@ -382,7 +388,7 @@ export class Renderer3D {
     const { model, shadow } = this.player;
     const spr = P.sprite;
     model.root.visible = spr.visible;
-    const h = this.hf.standAt(P.x, P.y);
+    const h = this.hf.standAt(P.x, P.y) + P.hoverOffset();
     model.root.position.set(P.x, h, toZ(P.y, h));
 
     // Heading: attack direction while attacking, else movement direction.
@@ -406,7 +412,7 @@ export class Renderer3D {
     const anim = (ANIMS.has(name) ? name : 'idle') as ChibiAnim;
     model.update(anim, dt, t, spr.anims.timeScale);
     model.setTint(spr.isTinted && !spr.tintFill ? spr.tintTopLeft : null, spr.tintFill, spr.alpha);
-    this.placeBlob(shadow, P.x, P.y, h, P.radius, spr.alpha);
+    this.placeBlob(shadow, P.x, P.y, this.hf.standAt(P.x, P.y), P.radius, spr.alpha * (P.flies ? 0.55 : 1));
   }
 
   private syncCamera(): void {

@@ -1,7 +1,7 @@
 import { BALANCE } from '../config/balance';
 import { FOODS } from '../data/foods';
 import { LAST_REALM } from '../data/realms';
-import { SPECIES } from '../data/species';
+import { SPECIES, getSpecies } from '../data/species';
 import { COLOR_VARIANTS } from '../data/shop';
 import type { Weather } from '../data/types';
 import type { PlayerState } from './playerState';
@@ -78,7 +78,7 @@ export function validateSave(d: any): string | null {
   if (!p || typeof p !== 'object') return 'Thiếu dữ liệu nhân vật.';
   if (!SPECIES.some((s) => s.id === p.speciesId)) return 'Loài sinh vật không xác định.';
   if (p.name !== undefined && p.name !== null && !isStr(p.name)) return 'Tên nhân vật không hợp lệ.';
-  if (!isNum(p.form) || p.form < 0 || p.form > 2 || Math.floor(p.form) !== p.form) return 'Dạng tiến hóa không hợp lệ.';
+  if (!isNum(p.form) || p.form < 0 || p.form > 4 || Math.floor(p.form) !== p.form) return 'Dạng tiến hóa không hợp lệ.';
   for (const k of ['level', 'exp', 'maturity', 'hp', 'hunger', 'thirst', 'stamina', 'fatigue', 'coins', 'x', 'y', 'slots', 'satiation']) {
     if (!isNum(p[k])) return `Chỉ số "${k}" bị hỏng.`;
   }
@@ -102,6 +102,7 @@ function sanitize(d: SaveData): SaveData {
   const p = d.player;
   const c = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
   p.level = c(Math.floor(p.level), 1, BALANCE.progression.maxLevel);
+  p.form = c(Math.floor(p.form), 0, getSpecies(p.speciesId).forms.length - 1);
   p.maturity = c(p.maturity, 0, BALANCE.maturity.max);
   p.hunger = c(p.hunger, 0, 100);
   p.thirst = c(p.thirst, 0, 100);

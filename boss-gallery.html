@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hình thái Boss</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #140e12;
+        --panel: #241820;
+        --muted: #b09aa8;
+        --line: #3c2a34;
+      }
+      * { box-box: border-box; box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: radial-gradient(ellipse at 50% 0%, #3a1824 0%, var(--bg) 55%);
+        color: #f6eef2;
+        min-height: 100vh;
+        padding: 24px 18px 48px;
+      }
+      h1 { margin: 0 0 6px; text-align: center; color: #ffd6a0; font-size: 28px; }
+      .sub { text-align: center; color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+      .group { max-width: 1100px; margin: 0 auto 22px; }
+      .group h2 { margin: 0 0 12px; font-size: 18px; color: #ffb0c8; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        background: linear-gradient(180deg, #2c1c24, #1a1218);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        text-align: center;
+      }
+      .card.guardian { border-color: #8a5a2a; box-shadow: inset 0 0 0 1px rgba(255, 180, 80, 0.15); }
+      .sprite {
+        height: 180px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        margin-bottom: 8px;
+      }
+      .sprite img {
+        image-rendering: auto;
+        width: auto;
+        max-width: 100%;
+      }
+      .title { font-weight: 700; font-size: 16px; }
+      .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+      .desc { color: #d8c4ce; font-size: 12px; line-height: 1.4; margin-top: 8px; min-height: 3.2em; }
+      .stats { margin-top: 8px; font-size: 11px; color: var(--muted); display: grid; gap: 2px; }
+      .tag {
+        display: inline-block;
+        margin-top: 8px;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Hình thái Boss</h1>
+    <p class="sub">Boss vùng + Boss Giữ Cổng (mỗi con một hình thái cố định, không tiến hóa)</p>
+    <div id="root"></div>
+    <script type="module">
+      import { NPC_LIST } from './src/data/npcs.ts';
+      import { setPreview3D } from './src/gfx/textures.ts';
+      import { chibiPreviewUrl } from './src/render3d/preview.ts';
+      import { renderBeastPreview } from './src/gfx/beastDrawer.ts';
+
+      setPreview3D(true);
+
+      function previewUrl(art) {
+        const bossScale = 2.45;
+        return chibiPreviewUrl(art, art.pal, false, bossScale) ?? renderBeastPreview(art, art.pal, false).toDataURL();
+      }
+
+      const fieldBosses = NPC_LIST.filter((n) => n.unique && !n.guardian);
+      const gateBosses = NPC_LIST.filter((n) => n.guardian);
+
+      const skills = (n) => {
+        const parts = [n.attack?.name, n.heavy?.name, n.ranged?.name, n.ult ? `✦ ${n.ult.name}` : null].filter(Boolean);
+        return parts.join(' · ');
+      };
+      const card = (n, kind) => {
+        const h = Math.round(100 + (n.art.size / 104) * 120);
+        return `<div class="card ${kind === 'gate' ? 'guardian' : ''}">
+          <div class="sprite"><img style="height:${h}px" src="${previewUrl(n.art)}" alt="${n.name}"></div>
+          <div class="title">${n.name}</div>
+          <div class="meta">Cấp ${n.level} · cỡ ${n.art.size} · hitbox ${n.radius}</div>
+          <div class="desc">${n.desc}</div>
+          <div class="stats">
+            <div>Máu ${n.stats.maxHp} · Tốc ${n.stats.speed} · Lực ${n.stats.power}</div>
+            <div>Phòng ${n.stats.defense} · EXP ${n.exp}</div>
+            <div style="color:#ffd6a0;margin-top:4px">${skills(n)}</div>
+          </div>
+          <span class="tag" style="border-color:${kind === 'gate' ? '#ffb050' : '#ff6a9a'};color:${kind === 'gate' ? '#ffb050' : '#ff6a9a'}">${kind === 'gate' ? 'Boss Giữ Cổng' : 'Boss vùng'}</span>
+        </div>`;
+      };
+
+      document.getElementById('root').innerHTML = `
+        <section class="group">
+          <h2>Boss vùng (xuất hiện trên map)</h2>
+          <div class="grid">${fieldBosses.map((n) => card(n, 'field')).join('')}</div>
+        </section>
+        <section class="group">
+          <h2>Boss Giữ Cổng (triệu hồi tại Cổng Cổ)</h2>
+          <div class="grid">${gateBosses.map((n) => card(n, 'gate')).join('')}</div>
+        </section>
+      `;
+    </script>
+  </body>
+</html>

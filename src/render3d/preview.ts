@@ -23,11 +23,11 @@ function getRenderer(): THREE.WebGLRenderer | null {
 const silhouetteMat = new THREE.MeshBasicMaterial({ color: '#0d1018' });
 
 /** Portrait of a chibi creature as a data URL (null when WebGL is unavailable). */
-export function chibiPreviewUrl(art: BeastArt, pal: Palette, silhouette: boolean): string | null {
+export function chibiPreviewUrl(art: BeastArt, pal: Palette, silhouette: boolean, scale = 1.9): string | null {
   const r = getRenderer();
   if (!r) return null;
   const scene = new THREE.Scene();
-  const model = new ChibiModel(art, pal);
+  const model = new ChibiModel(art, pal, scale);
   model.update('idle', 0, 0.4);
   model.root.rotation.y = -0.65;
   scene.add(model.root);

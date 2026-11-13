@@ -13,7 +13,7 @@ import type { SkillDef } from '../data/types';
 import { audio } from '../systems/audio';
 import { addToInventory, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
-import { SKILL_SLOTS, computeStats, createPlayerState, displayName, formOf, sanitizePlayerName, type PlayerState } from '../systems/playerState';
+import { SKILL_SLOTS, computeStats, createPlayerState, displayName, finalFormIndex, formOf, isFinalForm, sanitizePlayerName, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
 import { SLOT_KEYS, addMastery, equipSkill, evolvePending, slotUnlocked, syncLearned, type SkillEvolution } from '../systems/skills';
 import { STATUS_INFO } from '../systems/status';
@@ -925,10 +925,10 @@ export class GameScene extends Phaser.Scene {
         return { html: `<kbd>E</kbd>Bước qua Cổng ➜ ${esc(REALMS[this.realm + 1].name)}`, run: () => void this.confirmTravel() };
       }
       if (!this.npcs.guardian()) {
-        if (S.form < 2) {
+        if (S.form < BALANCE.evolution.gateForm) {
           return {
-            html: '<kbd>E</kbd>Cổng Cổ <small>(cần tiến hóa dạng cuối)</small>',
-            run: () => app.ui.toast(`Cổng Cổ đang ngủ yên. Hãy tiến hóa tới dạng cuối để triệu hồi ${g.name}.`, 'bad'),
+            html: `<kbd>E</kbd>Cổng Cổ <small>(cần dạng ${BALANCE.evolution.gateForm + 1}+)</small>`,
+            run: () => app.ui.toast(`Cổng Cổ đang ngủ yên. Hãy tiến hóa tới dạng ${BALANCE.evolution.gateForm + 1} trở lên để triệu hồi ${g.name}.`, 'bad'),
           };
         }
         return { html: `<kbd>E</kbd>Triệu hồi Boss Giữ Cổng: ${esc(g.name)}`, run: () => void this.confirmSummon() };
@@ -1054,7 +1054,7 @@ export class GameScene extends Phaser.Scene {
       this.fx.burst(w.x, w.y, 'drop', 8, { speed: 60, life: 0.5, up: 40, gravity: 200 });
       this.fx.ring(w.x, w.y, 0xbfe8ff, 2, 18, 0.5, 2);
       this.fx.text(P.x, P.y - P.radius * 2.6, `+${Math.round(got)} nước`, '#8fd0ff', 14);
-      if (this.wv.biomeAt(w.x, w.y) === 4 && !getSpecies(P.state.speciesId).swampWalker) {
+      if (this.wv.biomeAt(w.x, w.y) === 4 && !getSpecies(P.state.speciesId).swampWalker && !P.flies) {
         P.status.apply('poison', BALANCE.survival.swampWaterPoisonSec, P.stats.maxHp * 0.01, null);
         app.ui.toast('Nước đầm lầy tù đọng — bạn bị trúng độc! (Loài hệ Thủy miễn nhiễm)', 'bad');
       }
@@ -1424,10 +1424,14 @@ export class GameScene extends Phaser.Scene {
     app.ui.toast(`✨ Tiến hóa thành công: ${f.name}!`, 'evo');
     if (f.canClimbLedges) app.ui.toast('Bạn giờ có thể leo vách đá để lên cao nguyên đá.', 'good');
     if (S.form === 1) app.ui.toast(`Mở khóa ô chiêu thứ 3 (phím ${SLOT_KEYS[2]}).`, 'good');
-    if (S.form === 2 && !this.guardianDown) app.ui.toast(`Dạng cuối! Hãy tới Cổng Cổ (ô tím trên bản đồ) để thách đấu ${NPCS[realmOf(this.realm).guardian].name}.`, 'evo');
+    if (S.form === BALANCE.evolution.gateForm && !this.guardianDown) {
+      app.ui.toast(`Đủ mạnh để mở Cổng Cổ! Hãy tới ô tím trên bản đồ để thách đấu ${NPCS[realmOf(this.realm).guardian].name}.`, 'evo');
+    }
+    if (isFinalForm(S)) app.ui.toast('Bạn đã đạt dạng thần thoại tối thượng!', 'evo');
     this.checkLearn();
     for (const e of evolvePending(S)) this.announceSkillEvolution(e);
-    this.milestone(S.form === 1 ? 'evolve_1' : 'evolve_2');
+    const evoMs = S.form === 1 ? 'evolve_1' : S.form === 2 ? 'evolve_2' : S.form === 3 ? 'evolve_3' : S.form === 4 ? 'evolve_4' : null;
+    if (evoMs) this.milestone(evoMs);
     this.saveNow(true);
   }
 
@@ -1531,7 +1535,7 @@ export class GameScene extends Phaser.Scene {
 
   private debugQuickEvolve(): void {
     const S = this.player.state;
-    if (S.form >= 2) return;
+    if (S.form >= finalFormIndex(S.speciesId)) return;
     S.maturity = BALANCE.maturity.max;
     S.stats.elites = Math.max(S.stats.elites, BALANCE.evolution.requiredElites[S.form] ?? 0);
     while (S.level < BALANCE.evolution.requiredLevel[S.form]) addExp(S, expToNext(S.level));
@@ -1631,7 +1635,12 @@ export class GameScene extends Phaser.Scene {
     const P = this.player;
     if (P.alive) {
       const p = sx(P.x, P.nameAnchorY());
-      app.ui.nameTags.set('self', displayName(P.state), p.x, p.y, 'self');
+      app.ui.nameTags.set(
+        'self',
+        { name: displayName(P.state), form: P.state.form, hp: P.hp, maxHp: P.maxHp, kind: 'self' },
+        p.x,
+        p.y,
+      );
     } else app.ui.nameTags.hide('self');
 
     const seen = new Set<string>(P.alive ? ['self'] : []);
@@ -1639,7 +1648,18 @@ export class GameScene extends Phaser.Scene {
       if (!r.alive) continue;
       seen.add(r.peerId);
       const p = sx(r.x, r.nameAnchorY());
-      app.ui.nameTags.set(r.peerId, r.label, p.x, p.y, r.speciesId === P.speciesId ? 'ally' : 'enemy');
+      app.ui.nameTags.set(
+        r.peerId,
+        {
+          name: r.label,
+          form: r.form,
+          hp: r.hp,
+          maxHp: r.maxHp,
+          kind: r.speciesId === P.speciesId ? 'ally' : 'enemy',
+        },
+        p.x,
+        p.y,
+      );
     }
     app.ui.nameTags.prune(seen);
   }
@@ -1652,6 +1672,33 @@ export class GameScene extends Phaser.Scene {
     this.npcs.drawBars(g, this.player.score, this.debug.hitbox);
     this.fx.drawRings(g);
     const t = this.time.now / 1000;
+    // Living aura for terror / mythic forms (and remotes of the same tier).
+    const drawAura = (x: number, y: number, radius: number, color: number, burst: boolean) => {
+      const pulse = 1 + Math.sin(t * 3.5) * 0.08;
+      g.lineStyle(2, color, 0.35 + Math.sin(t * 4) * 0.1);
+      g.strokeCircle(x, y, radius * 1.85 * pulse);
+      g.lineStyle(1.5, 0xffffff, 0.2);
+      g.strokeCircle(x, y, radius * 2.35 * pulse);
+      if (burst) {
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2 + t * 1.2;
+          const r0 = radius * 1.4;
+          const r1 = radius * (2.1 + Math.sin(t * 5 + k) * 0.15);
+          g.lineStyle(2, color, 0.45);
+          g.lineBetween(x + Math.cos(a) * r0, y + Math.sin(a) * r0, x + Math.cos(a) * r1, y + Math.sin(a) * r1);
+        }
+      }
+    };
+    const P = this.player;
+    if (P.alive && P.state.form >= 3) {
+      const col = Phaser.Display.Color.HexStringToColor(P.species.elementColor).color;
+      drawAura(P.x, P.y, P.radius, col, P.state.form >= 4);
+    }
+    for (const r of this.remotes.values()) {
+      if (!r.alive || r.form < 3) continue;
+      const col = Phaser.Display.Color.HexStringToColor(getSpecies(r.speciesId).elementColor).color;
+      drawAura(r.x, r.y, r.radius, col, r.form >= 4);
+    }
     for (const m of this.player.state.markers) {
       const y = m.y - 26 + Math.sin(t * 3) * 3;
       g.fillStyle(0xc08aff, 0.9);
@@ -1660,7 +1707,6 @@ export class GameScene extends Phaser.Scene {
       g.fillCircle(m.x, y - 7, 2.5);
     }
     if (this.debug.hitbox) {
-      const P = this.player;
       g.lineStyle(1, 0x00ff00, 1);
       g.strokeCircle(P.x, P.y, P.radius);
       g.lineStyle(1, 0xffff00, 0.6);
@@ -1716,7 +1762,9 @@ export class GameScene extends Phaser.Scene {
     if (S.fatigue >= BALANCE.survival.fatigueExhaustedLevel) warnings.push('Cần ngủ');
 
     for (const k of P.status.list()) status.push(`${STATUS_INFO[k].icon} ${STATUS_INFO[k].name} ${Math.ceil(P.status.left(k))}s`);
-    if (P.inSwamp && !getSpecies(S.speciesId).swampWalker) status.push('Lội bùn (chậm)');
+    if (P.inSwamp && !getSpecies(S.speciesId).swampWalker && !P.flies) status.push('Lội bùn (chậm)');
+    if (P.flies) status.push('Bay lượn');
+    else if (P.bipedal) status.push('Đi hai chân');
     if (this.bloodMoon) status.push('🩸 Trăng Máu');
 
     const skills = [{ key: 'Chuột', name: f.basic.name, cd: P.cds.fraction('basic'), cdLeft: P.cds.left('basic'), locked: false }];

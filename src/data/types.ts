@@ -38,7 +38,21 @@ export type BeastFeature =
   | 'spots'
   | 'whiskers'
   | 'beard'
-  | 'gem';
+  | 'gem'
+  /** Soft elemental glow behind the body (forms 4–5). */
+  | 'aura'
+  /** Sharp rays bursting from the body (form 5). */
+  | 'aura_burst'
+  /** Ring of light above the head. */
+  | 'halo'
+  /** Large back wings / energy sails. */
+  | 'wings'
+  /** Permanent fierce brow over the eye. */
+  | 'fierce_eyes'
+  /** Form 4: stands and walks on two legs. */
+  | 'biped'
+  /** Form 5: hovers / flies above the ground. */
+  | 'fly';
 
 export interface BeastArt {
   /** Low-res frame size in art pixels (final texture is 2x). */
@@ -172,7 +186,8 @@ export interface SpeciesDef {
   diet: Diet;
   dietLabel: string;
   blurb: string;
-  forms: [FormDef, FormDef, FormDef];
+  /** Five evolution stages: juvenile → adult → apex → terror → mythic. */
+  forms: [FormDef, FormDef, FormDef, FormDef, FormDef];
   /** Skills learned over a run, in unlock order. The first entry is known from the start. */
   learnset: LearnEntry[];
   /** Ignores the movement penalty of swamp mud. */
@@ -226,6 +241,26 @@ export interface NpcDef {
     status?: StatusSpec;
     /** Backs away when the target gets too close. */
     kite?: boolean;
+  };
+  /** Signature boss ultimates (unique / guardians). */
+  ult?: {
+    name: string;
+    /** nova = expanding rings; barrage = multi-wave projectile storm. */
+    kind: 'slam' | 'lunge' | 'nova' | 'barrage';
+    range: number;
+    radius: number;
+    windupSec: number;
+    cooldownSec: number;
+    dmgMult: number;
+    knockback: number;
+    status?: StatusSpec;
+    /** Projectile count per wave (barrage). */
+    count?: number;
+    /** Extra waves after the first (barrage / nova). */
+    waves?: number;
+    speed?: number;
+    color?: number;
+    spreadDeg?: number;
   };
   /** Spawns in groups of this size; members join each other's fights. */
   pack?: number;

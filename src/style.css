@@ -103,7 +103,7 @@ body.gfx3d .swatch img {
   position: absolute;
   left: 0;
   top: 0;
-  padding: 2px 7px;
+  padding: 3px 8px 4px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 700;
@@ -111,10 +111,46 @@ body.gfx3d .swatch img {
   letter-spacing: 0.02em;
   white-space: nowrap;
   color: #ffe6a0;
-  background: rgba(8, 12, 10, 0.72);
+  background: rgba(8, 12, 10, 0.78);
   border: 1px solid rgba(255, 230, 160, 0.35);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
   will-change: transform;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  min-width: 72px;
+}
+.name-tag .nt-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+}
+.name-tag .nt-form {
+  font-size: 11px;
+  font-weight: 800;
+  opacity: 0.92;
+  color: #9ec8ff;
+}
+.name-tag .nt-hp {
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.name-tag .nt-hp-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: #5ad46a;
+  transition: width 0.12s linear;
+}
+.name-tag .nt-hp-fill[data-tone='mid'] {
+  background: #ffc04a;
+}
+.name-tag .nt-hp-fill[data-tone='low'] {
+  background: #ff5a4a;
 }
 .name-tag.self {
   color: #ffe6a0;
@@ -123,13 +159,22 @@ body.gfx3d .swatch img {
   color: #9dffb0;
   border-color: rgba(125, 255, 154, 0.45);
 }
+.name-tag.ally .nt-form {
+  color: #b8ffd0;
+}
 .name-tag.enemy {
   color: #ffb0a0;
   border-color: rgba(255, 122, 106, 0.45);
 }
+.name-tag.enemy .nt-form {
+  color: #ffc8b8;
+}
 body.touch .name-tag {
   font-size: 12px;
-  padding: 2px 6px;
+  padding: 2px 6px 3px;
+}
+body.touch .name-tag .nt-form {
+  font-size: 10px;
 }
 
 #ui {
@@ -286,7 +331,7 @@ button.danger {
   flex-wrap: wrap;
   justify-content: center;
   width: 100%;
-  max-width: 960px;
+  max-width: 1100px;
 }
 .card {
   flex: 1 1 240px;
@@ -368,17 +413,21 @@ button.danger {
   display: flex;
   justify-content: space-around;
   align-items: flex-end;
-  gap: 6px;
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 10px;
   color: var(--muted);
 }
 .card .evos div {
   display: flex;
   flex-direction: column;
   align-items: center;
+  max-width: 52px;
+  text-align: center;
 }
 .card .evos img {
-  width: 60px;
+  width: auto;
+  max-width: 56px;
   image-rendering: pixelated;
 }
 /* Sticky bottom bar so name + seed stay visible while scrolling species cards. */
@@ -774,18 +823,22 @@ kbd {
 .evo-line {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 8px 0;
 }
 .evo-line > div {
   display: flex;
   flex-direction: column;
   align-items: center;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
+  max-width: 72px;
+  text-align: center;
 }
 .evo-line img {
-  width: 64px;
+  width: auto;
+  max-width: 72px;
   image-rendering: pixelated;
 }
 .evo-line .current {
@@ -1261,10 +1314,12 @@ body.touch #hud .debug {
   }
   #select .cards {
     gap: 8px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
   .card {
-    min-width: 0;
+    flex: 1 1 140px;
+    min-width: 140px;
+    max-width: none;
     padding: 8px 10px;
     gap: 4px;
     border-radius: 10px;

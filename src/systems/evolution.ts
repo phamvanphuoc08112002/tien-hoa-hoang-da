@@ -1,5 +1,5 @@
 import { BALANCE } from '../config/balance';
-import { computeStats, type PlayerState } from './playerState';
+import { computeStats, finalFormIndex, isFinalForm, type PlayerState } from './playerState';
 import { isMaturityFull } from './progression';
 
 export interface EvoContext {
@@ -15,7 +15,7 @@ export interface EvoCheck {
 
 export function evolutionChecks(s: PlayerState, ctx: EvoContext): EvoCheck[] {
   const E = BALANCE.evolution;
-  if (s.form >= 2) return [{ id: 'final', label: 'Đã đạt dạng tiến hóa cuối cùng', ok: false }];
+  if (isFinalForm(s)) return [{ id: 'final', label: 'Đã đạt dạng tiến hóa cuối cùng', ok: false }];
   const reqLv = E.requiredLevel[s.form];
   const reqElites = E.requiredElites[s.form] ?? 0;
   const checks: EvoCheck[] = [
@@ -91,7 +91,7 @@ export class EvolutionProcess {
 
 /** Applies a successful evolution: next form, maturity reset, full heal. */
 export function completeEvolution(s: PlayerState): void {
-  if (s.form >= 2) return;
+  if (s.form >= finalFormIndex(s.speciesId)) return;
   s.form += 1;
   s.maturity = 0;
   s.satiation = 0;

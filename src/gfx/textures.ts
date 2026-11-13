@@ -149,6 +149,7 @@ let preview3D = false;
 
 /** Switches creature portraits between 3D chibi renders and the 2D pixel sprites. */
 export function setPreview3D(on: boolean): void {
+  if (preview3D !== on) urlCache.clear();
   preview3D = on;
   document.body.classList.toggle('gfx3d', on);
 }

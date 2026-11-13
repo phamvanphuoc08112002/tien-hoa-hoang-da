@@ -8,7 +8,7 @@ import { SPECIES, getSpecies } from '../data/species';
 import type { Weather } from '../data/types';
 import { foodIconUrl, speciesPreviewUrl } from '../gfx/textures';
 import type { EvoCheck } from '../systems/evolution';
-import { displayName, type PlayerState } from '../systems/playerState';
+import { displayName, isFinalForm, type PlayerState } from '../systems/playerState';
 import type { Settings } from '../systems/settings';
 import { WEATHER_NAMES } from '../systems/timeWeather';
 import { NameTags } from './NameTags';
@@ -201,7 +201,7 @@ export class UI {
       m.innerHTML = `<div class="panel">
         <h2>Chơi mạng</h2>
         <p style="margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.45">
-          Cùng loài (Mộc / Hỏa / Thủy) sẽ hỗ trợ nhau khi đứng gần.<br>
+          Cùng loài (cùng hệ: Mộc, Hỏa, Thủy, Phong, Lôi, Thổ) sẽ hỗ trợ nhau khi đứng gần.<br>
           Khác loài có thể tấn công lẫn nhau. Thế giới thú hoang mỗi máy tự chạy.
         </p>
         <div class="row" style="flex-wrap:wrap;gap:8px">
@@ -311,7 +311,7 @@ export class UI {
         return '';
       }
     })();
-    const statMax = { maxHp: 120, speed: 180, power: 14, defense: 12, stamina: 125 };
+    const statMax = { maxHp: 130, speed: 195, power: 16, defense: 14, stamina: 130 };
     const stat = (label: string, v: number, max: number, color: string) =>
       `<div class="statbar"><span>${label}</span><div class="bar"><div style="width:${Math.min(100, (v / max) * 100)}%;background:${color}"></div></div><span>${v}</span></div>`;
     const cards = SPECIES.map((s) => {
@@ -334,9 +334,14 @@ export class UI {
         ${stat('Sức bền', f.stats.stamina, statMax.stamina, '#c8e05a')}
         <div class="skill"><b>Đòn cơ bản:</b> ${esc(f.basic.name)}<br><b>Chiêu khởi đầu [Q]:</b> ${esc(q.name)} — ${esc(q.desc)}<br><small>Học thêm ${s.learnset.length - 1} chiêu khi lên cấp, sinh tồn và tiến hóa.</small></div>
         <div class="evos">
-          <div><img src="${speciesPreviewUrl(s.id, 0, false)}" alt="">${esc(f.name)}</div>
-          <div><img src="${speciesPreviewUrl(s.id, 1, true)}" alt="">Dạng 2: ???</div>
-          <div><img src="${speciesPreviewUrl(s.id, 2, true)}" alt="">Dạng 3: ???</div>
+          ${s.forms
+            .map((ff, i) => {
+              const h = 28 + i * 8;
+              return i === 0
+                ? `<div><img style="height:${h}px;width:auto" src="${speciesPreviewUrl(s.id, 0, false)}" alt="">${esc(ff.name)}</div>`
+                : `<div><img style="height:${h}px;width:auto" src="${speciesPreviewUrl(s.id, i, true)}" alt="">Dạng ${i + 1}: ???</div>`;
+            })
+            .join('')}
         </div>
         <button data-pick="${s.id}">Chọn ${esc(f.name)}</button>
       </div>`;
@@ -603,7 +608,10 @@ export class UI {
     const sp = getSpecies(s.speciesId);
     const f = sp.forms[s.form];
     const evoLine = sp.forms
-      .map((ff, i) => `<div class="${i === s.form ? 'current' : ''}"><img src="${speciesPreviewUrl(sp.id, i, i > s.form, i === s.form ? s.colorVariant : 'goc')}" alt="">${i <= s.form ? esc(ff.name) : '???'}</div>`)
+      .map((ff, i) => {
+        const h = 32 + i * 10;
+        return `<div class="${i === s.form ? 'current' : ''}"><img style="height:${h}px;width:auto" src="${speciesPreviewUrl(sp.id, i, i > s.form, i === s.form ? s.colorVariant : 'goc')}" alt="">${i <= s.form ? esc(ff.name) : '???'}</div>`;
+      })
       .join('<div>➜</div>');
     const html = `
       <h2>${esc(displayName(s))} <small style="font-size:14px;color:#a9b0bd">— ${esc(f.name)} · ${esc(f.title)} • Hệ ${esc(sp.element)} • ${esc(sp.dietLabel)}</small></h2>
@@ -640,8 +648,8 @@ export class UI {
     const d = this.charRefresh();
     this.renderSkills(d.state);
     const area = this.overlay.querySelector('[data-e=evo-area]') as HTMLElement;
-    if (d.state.form >= 2) {
-      area.innerHTML = '<p>Bạn đã đạt dạng tiến hóa tối thượng!</p>';
+    if (isFinalForm(d.state)) {
+      area.innerHTML = '<p>Bạn đã đạt dạng thần thoại tối thượng!</p>';
       return;
     }
     const html = `

@@ -54,7 +54,7 @@ export interface NpcEnv {
   audio: AudioSystem;
 }
 
-type WindupKind = 'basic' | 'heavy' | 'ranged';
+type WindupKind = 'basic' | 'heavy' | 'ranged' | 'ult';
 
 let uidCounter = 1000;
 
@@ -101,6 +101,7 @@ export class Npc implements Creature {
   atkCd = 0;
   heavyCd: number;
   rangedCd: number;
+  ultCd: number;
   windup: { kind: WindupKind; t: number; dir: number } | null = null;
   dash: { vx: number; vy: number; t: number } | null = null;
   lastAttacker: Creature | null = null;
@@ -146,15 +147,22 @@ export class Npc implements Creature {
     this.canClimb = def.biomes.includes('rock');
     this.hunger = 50 + Math.random() * 50;
     this.thirst = 50 + Math.random() * 50;
-    this.heavyCd = 1.5 + Math.random() * 2;
-    this.rangedCd = 1 + Math.random() * 2;
-    if (def.unique) this.status.ccResist = 0.4;
+    this.heavyCd = 1.2 + Math.random() * 1.5;
+    this.rangedCd = 0.8 + Math.random() * 1.5;
+    this.ultCd = def.ult ? 4 + Math.random() * 3 : 99;
+    if (def.id === 'hu_khong_than') this.status.ccResist = 0.85;
+    else if (def.guardian) this.status.ccResist = 0.7;
+    else if (def.unique) this.status.ccResist = 0.55;
     else if (affix) this.status.ccResist = 0.65;
     this.texKey = npcTextureKey(def.id);
     const s = def.art.size * 2;
     this.shadow = scene.add.image(x, y, 'shadow').setDisplaySize(this.radius * 2.6, this.radius * 0.9).setDepth(y - 30);
     this.sprite = scene.add.sprite(x, y, this.texKey, 0).setOrigin(0.5, (s - 4) / s);
-    if (affix) this.sprite.setScale(1.12);
+    // Bosses read as hulking monsters; elites a bit bigger than trash mobs.
+    if (def.id === 'hu_khong_than') this.sprite.setScale(1.55);
+    else if (def.guardian) this.sprite.setScale(1.42);
+    else if (def.unique) this.sprite.setScale(1.35);
+    else if (affix) this.sprite.setScale(1.12);
     this.play('idle');
   }
 
@@ -696,10 +704,11 @@ export class NpcManager {
   private step(n: Npc, dt: number): void {
     n.stateT += dt;
     n.iframes = Math.max(0, n.iframes - dt);
-    const cdRate = n.enraged ? 1 / BALANCE.threat.enrageCooldown : 1;
+    const cdRate = n.enraged ? 1 / this.enrageCd(n) : 1;
     n.atkCd = Math.max(0, n.atkCd - dt * cdRate);
     n.heavyCd = Math.max(0, n.heavyCd - dt * cdRate);
     n.rangedCd = Math.max(0, n.rangedCd - dt * cdRate);
+    n.ultCd = Math.max(0, n.ultCd - dt * cdRate);
     n.hbTimer = Math.max(0, n.hbTimer - dt);
     n.flash = Math.max(0, n.flash - dt);
     n.hunger = Math.max(0, n.hunger - BALANCE.npc.hungerDecayPerSec * dt * (n.state === 'rest' ? 0.4 : 1));
@@ -713,10 +722,15 @@ export class NpcManager {
       if (!n.alive) return;
     }
 
-    if (n.def.unique && !n.enraged && n.hp < n.maxHp * BALANCE.threat.enrageAt) {
+    if (n.def.unique && !n.enraged && n.hp < n.maxHp * this.enrageAt(n)) {
       n.enraged = true;
-      this.fx.ring(n.x, n.y, 0xff3a3a, 10, 140, 0.7, 5);
-      this.fx.text(n.x, n.y - n.radius * 3, 'NỔI ĐIÊN!', '#ff5a4a', 18);
+      // Ult comes off cooldown immediately when the boss snaps.
+      n.ultCd = Math.min(n.ultCd, 1.2);
+      n.heavyCd = Math.min(n.heavyCd, 0.8);
+      n.rangedCd = Math.min(n.rangedCd, 0.6);
+      this.fx.ring(n.x, n.y, 0xff3a3a, 10, 160, 0.8, 6);
+      this.fx.ring(n.x, n.y, 0xffd06a, 16, 220, 0.55, 3);
+      this.fx.text(n.x, n.y - n.radius * 3, n.def.id === 'hu_khong_than' ? 'HƯ VÔ THỨC TỈNH!' : 'NỔI ĐIÊN!', '#ff5a4a', 18);
       this.onEnrage?.(n);
     }
 
@@ -730,7 +744,7 @@ export class NpcManager {
     n.moveY = 0;
     n.speedMult = 0;
     let spd = n.sc.speed * (n.def.nocturnal && this.env.isNight() ? 1.1 : 1) * n.status.speedMult();
-    if (n.enraged) spd *= BALANCE.threat.enrageSpeed;
+    if (n.enraged) spd *= this.enrageSpeed(n);
 
     if (n.status.stunned) {
       if (n.windup) {
@@ -746,7 +760,9 @@ export class NpcManager {
       if (n.dash.t <= 0 || r.blockedX || r.blockedY) n.dash = null;
     } else if (n.windup) {
       n.windup.t -= dt;
-      if (n.target && n.target.alive && n.windup.kind !== 'heavy') n.windup.dir = Math.atan2(n.target.y - n.y, n.target.x - n.x);
+      if (n.target && n.target.alive && n.windup.kind !== 'heavy' && n.windup.kind !== 'ult') {
+        n.windup.dir = Math.atan2(n.target.y - n.y, n.target.x - n.x);
+      }
       if (n.windup.t <= 0) this.releaseAttack(n);
     } else {
       this.behave(n, dt);
@@ -928,9 +944,11 @@ export class NpcManager {
           break;
         }
         const fromHome = Math.hypot(n.x - n.chaseX, n.y - n.chaseY);
-        const leash = (n.def.leash || 300) * (n.elite || n.enraged ? 1.4 : 1);
-        if (fromHome > leash || (n.state === 'hunt' && n.stateT > BALANCE.npc.giveUpChaseSec)) {
-          n.giveUp.set(tg.uid, now + 20);
+        const boss = !!n.def.unique;
+        const leash = (n.def.leash || 300) * (n.elite || n.enraged ? 1.4 : 1) * (boss ? 1.75 : 1);
+        const huntLimit = boss ? BALANCE.npc.giveUpChaseSec * 2.5 : BALANCE.npc.giveUpChaseSec;
+        if (fromHome > leash || (n.state === 'hunt' && n.stateT > huntLimit)) {
+          n.giveUp.set(tg.uid, now + (boss ? 8 : 20));
           n.setState('wander');
           n.goal = { x: n.chaseX, y: n.chaseY };
           if (n.lastAttacker === tg) n.lastAttacker = null;
@@ -939,28 +957,43 @@ export class NpcManager {
         const d = Math.hypot(tg.x - n.x, tg.y - n.y);
         const gap = d - tg.radius - n.radius;
         const dir = Math.atan2(tg.y - n.y, tg.x - n.x);
+        const U = n.def.ult;
+        if (U && n.ultCd <= 0 && n.atkCd <= 0) {
+          const ok =
+            U.kind === 'slam' || U.kind === 'nova'
+              ? d < U.radius * 0.95
+              : U.kind === 'barrage'
+                ? gap < U.range * 0.95
+                : gap > 25 && gap < U.range * 0.9;
+          if (ok) {
+            this.startWindup(n, 'ult', dir);
+            break;
+          }
+        }
         const H = n.def.heavy;
         if (H && n.heavyCd <= 0 && n.atkCd <= 0) {
-          const ok = H.kind === 'slam' ? d < H.radius * 0.85 : gap > 30 && gap < H.range * 0.85;
+          const ok = H.kind === 'slam' ? d < H.radius * 0.9 : gap > 20 && gap < H.range * 0.9;
           if (ok) {
             this.startWindup(n, 'heavy', dir);
             break;
           }
         }
         const R = n.def.ranged;
-        if (R && n.rangedCd <= 0 && n.atkCd <= 0 && gap > 50 && gap < R.range * 0.9) {
+        if (R && n.rangedCd <= 0 && n.atkCd <= 0 && gap > 40 && gap < R.range * 0.95) {
           this.startWindup(n, 'ranged', dir);
           break;
         }
-        if (R?.kite && gap < 70 && n.rangedCd > 0.6) {
+        if (R?.kite && gap < 70 && n.rangedCd > 0.6 && !boss) {
           moveTo(n.x * 2 - tg.x, n.y * 2 - tg.y, 0.9);
           break;
         }
-        if (gap <= n.def.attack.range * 0.8) {
+        if (gap <= n.def.attack.range * (boss ? 1.05 : 0.8)) {
           if (n.atkCd <= 0) this.startWindup(n, 'basic', dir);
           n.facing = tg.x > n.x ? 1 : -1;
+          // Bosses keep pressing forward even while swinging.
+          if (boss && gap > 8) moveTo(tg.x, tg.y, n.enraged ? 1.15 : 0.85);
         } else {
-          moveTo(tg.x, tg.y, n.state === 'hunt' ? 1.12 : 1);
+          moveTo(tg.x, tg.y, n.state === 'hunt' ? 1.12 : boss ? 1.18 : 1);
         }
         break;
       }
@@ -969,11 +1002,46 @@ export class NpcManager {
     }
   }
 
+  private enrageAt(n: Npc): number {
+    if (n.def.id === 'hu_khong_than') return BALANCE.threat.finalEnrageAt;
+    if (n.def.guardian) return BALANCE.threat.guardianEnrageAt;
+    return BALANCE.threat.enrageAt;
+  }
+
+  private enrageSpeed(n: Npc): number {
+    if (n.def.id === 'hu_khong_than') return BALANCE.threat.finalEnrageSpeed;
+    if (n.def.guardian) return BALANCE.threat.guardianEnrageSpeed;
+    return BALANCE.threat.enrageSpeed;
+  }
+
+  private enrageCd(n: Npc): number {
+    if (n.def.id === 'hu_khong_than') return BALANCE.threat.finalEnrageCd;
+    if (n.def.guardian) return BALANCE.threat.guardianEnrageCd;
+    return BALANCE.threat.enrageCd;
+  }
+
   private startWindup(n: Npc, kind: WindupKind, dir: number): void {
     const H = n.def.heavy;
     const R = n.def.ranged;
+    const U = n.def.ult;
     const nearPlayer = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 500;
-    if (kind === 'heavy' && H) {
+    if (kind === 'ult' && U) {
+      n.windup = { kind, t: U.windupSec, dir };
+      const telKind = U.kind === 'lunge' ? 'lunge' : 'slam';
+      this.combat.telegraph({
+        ownerUid: n.uid,
+        kind: telKind,
+        x: n.x,
+        y: n.y,
+        dir,
+        range: U.range,
+        radius: U.radius,
+        t: U.windupSec,
+        total: U.windupSec,
+      });
+      this.fx.text(n.x, n.y - n.radius * 3.2, U.name, '#ffd06a', 14);
+      if (nearPlayer) this.env.audio.play('telegraph');
+    } else if (kind === 'heavy' && H) {
       n.windup = { kind, t: H.windupSec, dir };
       this.combat.telegraph({ ownerUid: n.uid, kind: H.kind, x: n.x, y: n.y, dir, range: H.range, radius: H.radius, t: H.windupSec, total: H.windupSec });
       if (nearPlayer) this.env.audio.play('telegraph');
@@ -991,11 +1059,15 @@ export class NpcManager {
     n.windup = null;
     if (!w) return;
     const p = n.power * (this.env.bloodMoon() ? BALANCE.threat.bloodMoonPower : 1);
+    if (w.kind === 'ult' && n.def.ult) {
+      this.releaseUlt(n, w.dir, p);
+      return;
+    }
     if (w.kind === 'heavy' && n.def.heavy) {
       const H = n.def.heavy;
       const opts = { status: H.status ?? n.meleeStatus() };
       n.heavyCd = H.cooldownSec * n.sc.atkCdMult;
-      n.atkCd = 0.8;
+      n.atkCd = 0.65;
       if (H.kind === 'slam') {
         this.combat.circle(n, n.x, n.y, H.radius, p, H.dmgMult, H.knockback, 0.12, false, 0xff6a3a, opts);
         this.fx.ring(n.x, n.y, 0xffa060, 10, H.radius, 0.45, 4);
@@ -1014,17 +1086,87 @@ export class NpcManager {
     } else if (w.kind === 'ranged' && n.def.ranged) {
       const R = n.def.ranged;
       n.rangedCd = R.cooldownSec * n.sc.atkCdMult;
-      n.atkCd = 0.6;
-      const count = R.count + (n.enraged ? 2 : 0);
-      const spread = (((R.spreadDeg || 0) + (n.enraged ? 12 : 0)) * Math.PI) / 180;
+      n.atkCd = 0.45;
+      const count = R.count + (n.enraged ? 2 : 0) + (n.def.unique && n.enraged ? 1 : 0);
+      const spread = (((R.spreadDeg || 0) + (n.enraged ? 14 : 0)) * Math.PI) / 180;
       for (let i = 0; i < count; i++) {
         const a = count === 1 ? w.dir : w.dir - spread + (2 * spread * i) / (count - 1);
         this.combat.projectile(n, n.x + Math.cos(a) * n.radius, n.y - n.radius * 0.6, a, R.speed, R.range, R.radius, p, R.dmgMult, R.knockback, R.color, 'drop', { status: R.status ?? null });
       }
     } else {
       const A = n.def.attack;
-      n.atkCd = A.cooldownSec * n.sc.atkCdMult;
+      n.atkCd = A.cooldownSec * n.sc.atkCdMult * (n.def.unique ? 0.75 : 1);
       this.combat.arc(n, w.dir, A.arcDeg, A.range + n.radius, p, A.dmgMult, A.knockback, A.activeSec, 0xffffff, { status: n.meleeStatus() });
+    }
+  }
+
+  private releaseUlt(n: Npc, dir: number, p: number): void {
+    const U = n.def.ult!;
+    const opts = { status: U.status ?? n.meleeStatus() };
+    n.ultCd = U.cooldownSec * n.sc.atkCdMult;
+    n.atkCd = 0.9;
+    const color = U.color ?? 0xffd06a;
+    const near = Math.hypot(this.env.player.x - n.x, this.env.player.y - n.y) < 700;
+    if (U.kind === 'slam' || U.kind === 'nova') {
+      const waves = Math.max(1, U.waves ?? (U.kind === 'nova' ? 2 : 1));
+      for (let i = 0; i < waves; i++) {
+        const delay = i * 280;
+        const rad = U.radius * (1 + i * 0.35);
+        const fire = () => {
+          if (!n.alive) return;
+          this.combat.circle(n, n.x, n.y, rad, p, U.dmgMult * (1 - i * 0.12), U.knockback, 0.14, false, color, opts);
+          this.fx.ring(n.x, n.y, color, 12 + i * 4, rad, 0.5, 5);
+          this.fx.burst(n.x, n.y, 'spark', 10 + i * 4, { speed: 140, life: 0.55, tint: color });
+        };
+        if (delay <= 0) fire();
+        else this.scene.time.delayedCall(delay, fire);
+      }
+      if (near) {
+        this.scene.cameras.main.shake(260, 0.01);
+        this.env.audio.play('hit');
+      }
+    } else if (U.kind === 'lunge') {
+      const dur = 0.32;
+      const sp = U.range / dur;
+      n.dash = { vx: Math.cos(dir) * sp, vy: Math.sin(dir) * sp, t: dur };
+      this.combat.circle(n, n.x, n.y, U.radius, p, U.dmgMult, U.knockback, dur, true, color, opts);
+      this.fx.burst(n.x, n.y, 'dust', 10, { speed: 120, life: 0.5, tint: color });
+    } else {
+      // Barrage: ring + aimed volleys in waves.
+      const waves = Math.max(1, U.waves ?? 2);
+      const count = Math.max(4, (U.count ?? 8) + (n.enraged ? 3 : 0));
+      const speed = U.speed ?? 400;
+      const spread = (((U.spreadDeg ?? 360) * Math.PI) / 180);
+      for (let wave = 0; wave < waves; wave++) {
+        const delay = wave * 320;
+        this.scene.time.delayedCall(delay, () => {
+          if (!n.alive) return;
+          const aim = n.target && n.target.alive ? Math.atan2(n.target.y - n.y, n.target.x - n.x) : dir;
+          const fullRing = (U.spreadDeg ?? 360) >= 300;
+          for (let i = 0; i < count; i++) {
+            const a = fullRing
+              ? aim + (i / count) * Math.PI * 2 + wave * 0.35
+              : aim - spread / 2 + (spread * i) / Math.max(1, count - 1);
+            this.combat.projectile(
+              n,
+              n.x + Math.cos(a) * n.radius,
+              n.y - n.radius * 0.5,
+              a,
+              speed * (0.92 + wave * 0.08),
+              U.range,
+              U.radius,
+              p,
+              U.dmgMult,
+              U.knockback,
+              color,
+              'drop',
+              { status: U.status ?? null },
+            );
+          }
+          this.fx.burst(n.x, n.y - n.radius, 'spark', 12, { speed: 90, life: 0.45, tint: color });
+        });
+      }
+      if (near) this.env.audio.play('telegraph');
     }
   }
 

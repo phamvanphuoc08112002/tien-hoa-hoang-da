@@ -119,6 +119,15 @@ export function formOf(s: PlayerState): FormDef {
   return getSpecies(s.speciesId).forms[s.form];
 }
 
+/** Highest form index for this species (4 when there are 5 stages). */
+export function finalFormIndex(speciesId: string): number {
+  return getSpecies(speciesId).forms.length - 1;
+}
+
+export function isFinalForm(s: PlayerState): boolean {
+  return s.form >= finalFormIndex(s.speciesId);
+}
+
 /** Effective stats from form base values scaled by combat level. */
 export function computeStats(s: PlayerState): Stats {
   const f = formOf(s);

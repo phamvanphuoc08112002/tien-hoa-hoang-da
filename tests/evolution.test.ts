@@ -35,14 +35,19 @@ describe('evolution conditions', () => {
   });
 
   it('final form cannot evolve', () => {
-    const s = ready(1);
-    s.form = 2;
+    const s = ready(0);
+    s.form = 4;
+    s.level = 99;
+    s.stats.elites = 99;
     expect(canEvolve(s, safe)).toBe(false);
+    expect(evolutionChecks(s, safe).some((c) => c.id === 'final')).toBe(true);
   });
 
-  it('durations are ~20s and ~40s', () => {
+  it('durations cover all four evolution steps', () => {
     expect(evolutionDuration(0)).toBe(20);
     expect(evolutionDuration(1)).toBe(40);
+    expect(evolutionDuration(2)).toBe(55);
+    expect(evolutionDuration(3)).toBe(75);
   });
 });
 

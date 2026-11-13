@@ -29,11 +29,20 @@ export class ChibiModel {
   private head = new THREE.Group();
   private tail = new THREE.Group();
   private legs: THREE.Group[] = [];
+  /** Authored rest pose for each limb — update() animates relative to these. */
+  private legBases: THREE.Vector3[] = [];
   private eyes: THREE.Object3D[] = [];
   private mouth: THREE.Mesh | null = null;
   private flames: Flame[] = [];
   private mats = new Map<string, THREE.MeshToonMaterial>();
   private glowMats: THREE.MeshBasicMaterial[] = [];
+  private auraMats: THREE.MeshBasicMaterial[] = [];
+  private auraMeshes: THREE.Object3D[] = [];
+  private wingMeshes: THREE.Object3D[] = [];
+  private wingBases: { y: number; z: number; x: number }[] = [];
+  private fierceEyes = false;
+  private biped = false;
+  private flies = false;
   private outlineMat: THREE.MeshBasicMaterial;
   private allMats: THREE.Material[] = [];
 
@@ -60,24 +69,116 @@ export class ChibiModel {
     const F = scale;
     const a = art;
     const has = (f: string) => (a.features as string[]).includes(f);
+    this.fierceEyes = has('fierce_eyes');
+    this.biped = has('biped') || has('fly');
+    this.flies = has('fly');
     this.outlineMat = new THREE.MeshBasicMaterial({ color: pal.outline, side: THREE.BackSide });
     this.allMats.push(this.outlineMat);
 
-    this.hipY = Math.max(3, a.legLen * F * 0.7);
-    this.bw = a.bodyW * F * 0.8;
-    this.bh = a.bodyH * F * 0.95;
-    this.bd = Math.max(a.bodyH, a.bodyW * 0.62) * F * 0.95;
+    // Mega / boss forms: mature beast proportions (smaller head, bulkier body) — not a baby on stilts.
+    const menacing = this.fierceEyes || has('aura') || has('aura_burst');
+    this.hipY = Math.max(3, a.legLen * F * (this.biped ? 1.15 : menacing ? 0.85 : 0.7));
+    this.bw = a.bodyW * F * (this.biped ? 0.78 : menacing ? 0.92 : 0.8);
+    this.bh = a.bodyH * F * (this.biped ? 1.22 : menacing ? 1.08 : 0.95);
+    this.bd = Math.max(a.bodyH, a.bodyW * 0.62) * F * (this.biped ? 0.92 : menacing ? 1.05 : 0.95);
     const { bw, bh, bd } = this;
-    this.bodyY = this.hipY + bh * 0.82;
-    const R = a.headR * F * 1.45;
+    this.bodyY = this.hipY + bh * (this.biped ? 1.2 : 0.82);
+    const R = a.headR * F * (this.biped ? 1.05 : menacing ? 1.15 : 1.45);
     this.headR = R;
 
     this.root.add(this.rig);
     this.rig.add(this.body);
     this.body.position.set(0, this.bodyY, 0);
 
+    // ---- aura (underglow + back crescent — never a full body blob) ----
+    if (has('aura') || has('aura_burst')) {
+      const floor = this.glowPart(this.rig, SPHERE, pal.accent2, [0, 1.2, 0], [bw * 1.4, 1.2, bd * 1.4]);
+      (floor.material as THREE.MeshBasicMaterial).transparent = true;
+      (floor.material as THREE.MeshBasicMaterial).opacity = 0.35;
+      (floor.material as THREE.MeshBasicMaterial).depthWrite = false;
+      this.auraMats.push(floor.material as THREE.MeshBasicMaterial);
+      this.auraMeshes.push(floor);
+      const tor = new THREE.TorusGeometry(Math.max(bw, bh) * 1.15, Math.max(bw, bh) * 0.055, 8, 28, Math.PI * 1.35);
+      const ring = this.glowPart(this.body, tor, pal.accent2, [-bw * 0.15, bh * 0.1, 0], [1, 1, 1]);
+      ring.rotation.set(Math.PI / 2.2, 0, -0.25);
+      (ring.material as THREE.MeshBasicMaterial).transparent = true;
+      (ring.material as THREE.MeshBasicMaterial).opacity = 0.6;
+      (ring.material as THREE.MeshBasicMaterial).depthWrite = false;
+      this.auraMats.push(ring.material as THREE.MeshBasicMaterial);
+      this.auraMeshes.push(ring);
+      const haze = this.glowPart(this.body, SPHERE, pal.accent, [-bw * 0.2, 0, 0], [bw * 0.9, bh * 1.05, bd * 0.9]);
+      (haze.material as THREE.MeshBasicMaterial).transparent = true;
+      (haze.material as THREE.MeshBasicMaterial).opacity = 0.12;
+      (haze.material as THREE.MeshBasicMaterial).depthWrite = false;
+      this.auraMats.push(haze.material as THREE.MeshBasicMaterial);
+      this.auraMeshes.push(haze);
+    }
+    if (has('aura_burst')) {
+      for (let k = 0; k < 6; k++) {
+        const t = k / 5;
+        const ang = -Math.PI * 0.7 + t * Math.PI * 0.9;
+        const ray = this.glowPart(
+          this.body,
+          CONE,
+          k % 2 ? pal.accent2 : pal.accent,
+          [Math.cos(ang) * bw * 0.2 - bw * 0.35, Math.sin(ang) * bh * 0.35 + bh * 0.15, Math.sin(ang * 0.5) * bd * 0.2],
+          [bw * 0.16, bh * 1.15, bw * 0.16],
+        );
+        ray.rotation.z = ang + Math.PI / 2;
+        (ray.material as THREE.MeshBasicMaterial).transparent = true;
+        (ray.material as THREE.MeshBasicMaterial).opacity = 0.48;
+        this.auraMats.push(ray.material as THREE.MeshBasicMaterial);
+        this.auraMeshes.push(ray);
+      }
+    }
+    if (has('wings')) {
+      for (const s of [-1, 1]) {
+        const span = this.flies ? 2.6 : 1.55;
+        // Flat membrane sails (cone stretched) read as wings, not backpack blobs.
+        const sail = this.part(
+          this.body,
+          CONE,
+          s < 0 ? pal.accent : pal.accent2,
+          [-bw * 0.08, bh * 0.4, s * bd * 0.45],
+          [bd * span * 0.65, bw * span * 1.15, bh * 0.1],
+        );
+        sail.rotation.set(s * (this.flies ? 1.25 : 0.95), s * (this.flies ? 0.4 : 0.22), Math.PI / 2 + s * 0.12);
+        this.wingMeshes.push(sail);
+        this.wingBases.push({ x: sail.rotation.x, y: sail.rotation.y, z: sail.rotation.z });
+        const membrane = this.part(
+          this.body,
+          CONE,
+          pal.light,
+          [bw * 0.02, bh * 0.22, s * bd * 0.32],
+          [bd * span * 0.42, bw * span * 0.78, bh * 0.07],
+          0,
+        );
+        membrane.rotation.set(s * (this.flies ? 1.15 : 0.85), s * 0.18, Math.PI / 2 + s * 0.08);
+        this.wingMeshes.push(membrane);
+        this.wingBases.push({ x: membrane.rotation.x, y: membrane.rotation.y, z: membrane.rotation.z });
+        const bone = this.part(
+          this.body,
+          CYL,
+          shadeColor(s < 0 ? pal.accent : pal.accent2, -0.25).getStyle(),
+          [-bw * 0.05, bh * 0.45, s * bd * 0.28],
+          [bw * 0.07, bw * span * 1.05, bw * 0.07],
+          0,
+        );
+        bone.rotation.z = Math.PI / 2;
+        bone.rotation.y = s * (this.flies ? 0.6 : 0.38);
+      }
+    }
+
     // ---- body ----
     this.part(this.body, SPHERE, pal.base, [0, 0, 0], [bw, bh, bd]);
+    if (this.biped) {
+      // Broad shoulders / chest mass so mega forms read as powerful, not lanky.
+      this.part(this.body, SPHERE, pal.base, [bw * 0.05, bh * 0.35, 0], [bw * 1.15, bh * 0.55, bd * 1.15]);
+      this.part(this.body, SPHERE, shadeColor(pal.dark, -0.05).getStyle(), [0, -bh * 0.35, 0], [bw * 0.9, bh * 0.45, bd * 0.95], 0.6);
+      for (const s of [-1, 1]) {
+        this.part(this.body, SPHERE, pal.dark, [bw * 0.15, bh * 0.45, s * bd * 0.85], [bw * 0.38, bh * 0.32, bd * 0.35]);
+      }
+    }
     this.part(this.body, SPHERE, pal.belly, [bw * 0.3, -bh * 0.28, 0], [bw * 0.68, bh * 0.66, bd * 0.8], 0.8);
     if (has('stripes')) for (const k of [-0.45, -0.05, 0.35]) this.part(this.body, LOW_SPHERE, pal.dark, [bw * k, bh * 0.12, 0], [bw * 0.11, bh * 0.96, bd * 0.97], 0);
     if (has('spots')) {
@@ -116,15 +217,17 @@ export class ChibiModel {
       m.rotation.z = 0.35;
     }
     if (has('tree_crown')) {
-      const tx = -bw * 0.15;
-      this.part(this.body, CYL, pal.accent, [tx, top + bh * 0.55, 0], [bw * 0.12, bh * 1.2, bw * 0.12]);
-      const cy = top + bh * 1.45;
-      this.part(this.body, SPHERE, pal.dark, [tx - bw * 0.35, cy - bh * 0.1, bd * 0.15], [bw * 0.45, bh * 0.5, bw * 0.45]);
-      this.part(this.body, SPHERE, pal.dark, [tx + bw * 0.32, cy - bh * 0.05, -bd * 0.15], [bw * 0.42, bh * 0.48, bw * 0.42]);
-      this.part(this.body, SPHERE, pal.base, [tx, cy + bh * 0.25, 0], [bw * 0.55, bh * 0.55, bw * 0.55]);
-      this.part(this.body, LOW_SPHERE, pal.light, [tx - bw * 0.1, cy + bh * 0.6, bd * 0.1], [bw * 0.28, bh * 0.25, bw * 0.28], 0);
-      this.part(this.body, LOW_SPHERE, pal.accent2, [tx + bw * 0.35, cy + bh * 0.2, bd * 0.35], [2, 2, 2], 0);
-      this.part(this.body, LOW_SPHERE, '#ff9ec4', [tx - bw * 0.4, cy + bh * 0.1, -bd * 0.3], [2, 2, 2], 0);
+      // Compact shoulder grove for biped; full canopy for quads.
+      const sc = this.biped ? 0.85 : 1;
+      const tx = -bw * (this.biped ? 0.12 : 0.15);
+      this.part(this.body, CYL, pal.accent, [tx, top + bh * 0.4 * sc, 0], [bw * 0.11, bh * (this.biped ? 0.85 : 1.2), bw * 0.11]);
+      const cy = top + bh * (this.biped ? 1.15 : 1.45);
+      this.part(this.body, SPHERE, pal.dark, [tx - bw * 0.32 * sc, cy - bh * 0.08, bd * 0.15], [bw * 0.4 * sc, bh * 0.45 * sc, bw * 0.4 * sc]);
+      this.part(this.body, SPHERE, pal.dark, [tx + bw * 0.3 * sc, cy - bh * 0.05, -bd * 0.15], [bw * 0.38 * sc, bh * 0.42 * sc, bw * 0.38 * sc]);
+      this.part(this.body, SPHERE, pal.base, [tx, cy + bh * 0.22 * sc, 0], [bw * 0.48 * sc, bh * 0.48 * sc, bw * 0.48 * sc]);
+      this.part(this.body, LOW_SPHERE, pal.light, [tx - bw * 0.1, cy + bh * 0.5 * sc, bd * 0.1], [bw * 0.25 * sc, bh * 0.22 * sc, bw * 0.25 * sc], 0);
+      this.part(this.body, LOW_SPHERE, pal.accent2, [tx + bw * 0.3 * sc, cy + bh * 0.18 * sc, bd * 0.3], [2.2, 2.2, 2.2], 0);
+      this.part(this.body, LOW_SPHERE, '#ff9ec4', [tx - bw * 0.32 * sc, cy + bh * 0.1 * sc, -bd * 0.25], [2.2, 2.2, 2.2], 0);
     }
 
     // ---- tail ----
@@ -172,20 +275,56 @@ export class ChibiModel {
     }
     if (has('flame_tail')) this.flame(this.tail, tip, Math.max(4, tw * 1.25), pal);
 
-    // ---- legs ----
+    // ---- legs (biped = digitigrade thighs + shins + short arms) ----
     const legR = Math.max(1.8, a.legW * F * 0.5);
     const legLen = this.bodyY - bh * 0.35;
-    for (const [lx, lz] of [[0.55, 0.55], [0.55, -0.55], [-0.55, 0.55], [-0.55, -0.55]]) {
-      const g = new THREE.Group();
-      g.position.set(bw * lx, this.bodyY - bh * 0.35, bd * lz * 0.85);
-      this.rig.add(g);
-      this.part(g, CYL, lx > 0 ? pal.base : pal.dark, [0, -legLen / 2, 0], [legR, legLen, legR], 0.8);
-      this.part(g, SPHERE, shadeColor(pal.dark, -0.15).getStyle(), [legR * 0.3, -legLen + legR * 0.35, 0], [legR * 1.25, legR * 0.75, legR * 1.1]);
-      this.legs.push(g);
+    if (this.biped) {
+      for (const s of [-1, 1]) {
+        const g = new THREE.Group();
+        g.position.set(bw * 0.08, this.bodyY - bh * 0.38, s * bd * 0.5);
+        this.rig.add(g);
+        const thigh = legLen * (this.flies ? 0.36 : 0.52);
+        const shin = legLen * (this.flies ? 0.28 : 0.5);
+        this.part(g, CYL, s < 0 ? pal.dark : pal.base, [0, -thigh * 0.4, 0], [legR * 1.45, thigh, legR * 1.45], 0.8);
+        this.part(g, CYL, shadeColor(s < 0 ? pal.dark : pal.base, -0.08).getStyle(), [legR * 0.2, -thigh - shin * 0.3, 0], [legR * 1.05, shin, legR * 1.05], 0.8);
+        this.part(g, SPHERE, shadeColor(pal.dark, -0.15).getStyle(), [legR * 0.4, -thigh - shin + legR * 0.15, 0], [legR * 1.4, legR * 0.75, legR * 1.25]);
+        this.legs.push(g);
+        this.legBases.push(g.position.clone());
+      }
+      for (const s of [-1, 1]) {
+        const g = new THREE.Group();
+        g.position.set(bw * 0.55, this.bodyY + bh * 0.25, s * bd * 0.8);
+        this.rig.add(g);
+        const armLen = legLen * (this.flies ? 0.4 : 0.5);
+        this.part(g, CYL, s < 0 ? pal.dark : pal.base, [0, -armLen * 0.35, 0], [legR * 1.05, armLen * 0.65, legR * 1.05], 0.8);
+        this.part(g, CYL, shadeColor(s < 0 ? pal.dark : pal.base, -0.08).getStyle(), [0, -armLen * 0.9, 0], [legR * 0.8, armLen * 0.5, legR * 0.8], 0.8);
+        this.part(g, SPHERE, shadeColor(pal.dark, -0.1).getStyle(), [0, -armLen * 1.2, 0], [legR * 1.05, legR * 0.7, legR * 1.05]);
+        // Claw tips.
+        for (const cz of [-0.35, 0, 0.35]) {
+          this.part(g, CONE, pal.outline, [legR * 0.15, -armLen * 1.45, cz * legR], [legR * 0.18, legR * 0.45, legR * 0.18], 0);
+        }
+        this.legs.push(g);
+        this.legBases.push(g.position.clone());
+      }
+    } else {
+      for (const [lx, lz] of [
+        [0.55, 0.55],
+        [0.55, -0.55],
+        [-0.55, 0.55],
+        [-0.55, -0.55],
+      ] as const) {
+        const g = new THREE.Group();
+        g.position.set(bw * lx, this.bodyY - bh * 0.35, bd * lz * 0.85);
+        this.rig.add(g);
+        this.part(g, CYL, lx > 0 ? pal.base : pal.dark, [0, -legLen / 2, 0], [legR, legLen, legR], 0.8);
+        this.part(g, SPHERE, shadeColor(pal.dark, -0.15).getStyle(), [legR * 0.3, -legLen + legR * 0.35, 0], [legR * 1.25, legR * 0.75, legR * 1.1]);
+        this.legs.push(g);
+        this.legBases.push(g.position.clone());
+      }
     }
 
     // ---- neck mane ----
-    const neck = new THREE.Vector3(bw * 0.62, bh * 0.55, 0);
+    const neck = new THREE.Vector3(bw * (this.biped ? 0.15 : 0.62), bh * (this.biped ? 0.9 : 0.55), 0);
     if (has('flame_mane')) {
       for (let k = 0; k < 5; k++) {
         const ang = (k / 4 - 0.5) * 2.2;
@@ -195,7 +334,11 @@ export class ChibiModel {
 
     // ---- head ----
     this.body.add(this.head);
-    this.head.position.set(bw * 0.72 + a.headDx * F * 0.12, bh * 0.5 + R * 0.72, 0);
+    this.head.position.set(
+      this.biped ? bw * 0.12 + a.headDx * F * 0.02 : bw * 0.72 + a.headDx * F * 0.12,
+      this.biped ? bh * 1.12 + R * 0.62 : bh * 0.5 + R * 0.72,
+      0,
+    );
     this.part(this.head, SPHERE, pal.base, [0, 0, 0], [R, R * 0.92, R * 0.98]);
     // muzzle
     const muz = new THREE.Vector3(R * 0.72, -R * 0.3, 0);
@@ -206,21 +349,30 @@ export class ChibiModel {
     } else muz.x = R * 0.95;
     this.part(this.head, LOW_SPHERE, pal.outline, [muz.x, muz.y + R * 0.12, 0], [R * 0.11, R * 0.09, R * 0.13], 0);
     this.mouth = this.part(this.head, LOW_SPHERE, '#5a1a24', [muz.x - R * 0.12, muz.y - R * 0.18, 0], [R * 0.16, R * 0.02, R * 0.22], 0);
-    // cheeks
-    for (const s of [-1, 1]) this.part(this.head, LOW_SPHERE, '#ff8fa8', [R * 0.55, -R * 0.32, s * R * 0.72], [R * 0.16, R * 0.1, R * 0.1], 0).material = this.mat('#ff9fb4', 0.75);
-    // eyes
+    // cheeks — skip blush on mega / boss forms (reads too babyish)
+    if (!this.biped && !this.fierceEyes && !has('aura') && !has('aura_burst'))
+      for (const s of [-1, 1]) this.part(this.head, LOW_SPHERE, '#ff8fa8', [R * 0.55, -R * 0.32, s * R * 0.72], [R * 0.16, R * 0.1, R * 0.1], 0).material = this.mat('#ff9fb4', 0.75);
+    // eyes — mega forms get fierce glowing slits + brow ridges
     for (const s of [-1, 1]) {
       const n = new THREE.Vector3(0.68, 0.18, s * 0.6).normalize();
-      const e = R * 0.34;
+      const e = R * (this.biped ? 0.3 : 0.34);
       const g = new THREE.Group();
       g.position.copy(n.clone().multiplyScalar(R * 0.9));
       g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
-      const eye = new THREE.Mesh(SPHERE, this.mat(pal.eye));
-      eye.scale.set(e * 0.85, e * 1.15, e * 0.5);
+      const eye = new THREE.Mesh(SPHERE, this.mat(this.fierceEyes ? pal.accent2 : pal.eye));
+      eye.scale.set(e * 0.85, e * (this.fierceEyes ? 0.95 : 1.15), e * 0.5);
       g.add(eye);
+      if (this.fierceEyes) {
+        const slit = new THREE.Mesh(LOW_SPHERE, this.mat(pal.outline));
+        slit.scale.set(e * 0.18, e * 0.7, e * 0.15);
+        slit.position.z = e * 0.35;
+        g.add(slit);
+        const brow = this.part(this.head, CONE, pal.outline, [R * 0.55, R * 0.42, s * R * 0.55], [R * 0.12, R * 0.35, R * 0.08], 0);
+        brow.rotation.set(s * 0.4, 0, s * 0.9 - 0.3);
+      }
       const hl = new THREE.Mesh(LOW_SPHERE, this.mat('#ffffff'));
-      hl.scale.set(e * 0.3, e * 0.3, e * 0.2);
-      hl.position.set(s * e * 0.25, e * 0.45, e * 0.32);
+      hl.scale.set(e * 0.28, e * 0.28, e * 0.18);
+      hl.position.set(s * e * 0.25, e * 0.4, e * 0.32);
       g.add(hl);
       this.head.add(g);
       this.eyes.push(g);
@@ -252,8 +404,9 @@ export class ChibiModel {
     if (has('horns')) for (const s of [-1, 1]) this.part(this.head, CONE, pal.accent, [R * 0.2, R * 1.0, s * R * 0.32], [R * 0.2, R * 0.7, R * 0.2]).rotation.set(s * 0.25, 0, -0.3);
     if (has('big_horns'))
       for (const s of [-1, 1]) {
-        const tor = new THREE.TorusGeometry(R * 0.55, R * 0.14, 8, 14, Math.PI * 0.85);
-        const m = this.part(this.head, tor, pal.accent, [-R * 0.25, R * 0.75, s * R * 0.42], [1, 1, 1]);
+        const hs = this.biped ? 1.25 : 1;
+        const tor = new THREE.TorusGeometry(R * 0.55 * hs, R * 0.14 * hs, 8, 14, Math.PI * 0.85);
+        const m = this.part(this.head, tor, pal.accent, [-R * 0.25, R * 0.8 * hs, s * R * 0.42], [1, 1, 1]);
         m.rotation.set(0, s * 0.35, 0.2);
       }
     if (has('curled_horns'))
@@ -274,6 +427,12 @@ export class ChibiModel {
       this.flame(this.head, new THREE.Vector3(-R * 0.45, R * 0.7, 0), R * 0.55, pal);
     }
     if (has('gem')) this.glowPart(this.head, OCTA, pal.accent, [R * 0.78, R * 0.45, 0], [R * 0.16, R * 0.22, R * 0.16]);
+    if (has('halo')) {
+      const tor = new THREE.TorusGeometry(R * 0.95, R * 0.08, 8, 24);
+      const halo = this.glowPart(this.head, tor, pal.accent2, [0, R * 1.35, 0], [1, 1, 1]);
+      halo.rotation.x = Math.PI / 2.4;
+      this.auraMeshes.push(halo);
+    }
     if (has('beard')) {
       const m = this.part(this.head, CONE, pal.light, [R * 0.6, -R * 0.85, 0], [R * 0.3, R * 0.6, R * 0.35]);
       m.rotation.z = Math.PI;
@@ -417,22 +576,32 @@ export class ChibiModel {
     const drop = this.lie * (this.bodyY - this.bd * 0.75);
     this.body.position.set(this.lunge * this.bw * 0.45, this.bodyY - drop + bob, 0);
     this.body.scale.set(1 - breathe * 0.5, 1 + breathe, 1 - breathe * 0.5);
-    this.body.rotation.z = this.lean - this.lunge * 0.12;
+    // Flying beasts lean forward (soar), standing bipeds stay upright with a slight predator tilt.
+    const flyPitch = this.flies && !lying && !dead ? -0.32 : this.biped && !lying ? -0.08 : 0;
+    this.body.rotation.z = this.lean - this.lunge * 0.12 + flyPitch;
     this.rig.rotation.x = this.roll * 1.45;
-    this.rig.position.y = this.roll * this.bd * 0.3;
+    const flyHover = this.flies ? 8 + Math.sin(t * 3.2) * 2.4 + (anim === 'walk' ? 1.8 : 0) : 0;
+    this.rig.position.y = this.roll * this.bd * 0.3 + flyHover;
 
     // head
     this.head.rotation.z = this.pitch;
     this.head.rotation.x = anim === 'idle' ? Math.sin(t * 0.9) * 0.08 : 0;
 
-    // legs
+    // legs / arms — keep authored rest pose, only swing/bob
     for (let i = 0; i < this.legs.length; i++) {
       const L = this.legs[i];
-      const s = i === 0 || i === 3 ? 1 : -1;
-      L.rotation.z = legSwing * s;
+      const base = this.legBases[i] ?? L.position;
+      const s = i % 2 === 0 ? 1 : -1;
+      const isArm = this.biped && i >= 2;
+      const swingAmt = isArm ? 0.55 : this.flies ? 0.25 : 1;
+      L.rotation.z = legSwing * s * swingAmt;
+      L.rotation.x = isArm ? -0.35 + (this.flies ? 0.2 : 0) : this.flies ? 0.45 : 0;
       L.scale.y = 1 - this.lie * 0.75;
-      L.position.y = this.bodyY - this.bh * 0.35 - drop * 0.95 + bob;
-      L.position.x = (i < 2 ? 1 : -1) * this.bw * 0.55 + this.lunge * this.bw * 0.3 * (i < 2 ? 1 : 0.4);
+      L.position.set(
+        base.x + this.lunge * this.bw * (isArm ? 0.15 : 0.28),
+        base.y - drop * (isArm ? 0.35 : 0.95) + bob * (isArm ? 0.4 : 1),
+        base.z,
+      );
     }
 
     // tail
@@ -445,11 +614,28 @@ export class ChibiModel {
       f.mesh.scale.set(1 / Math.sqrt(fl), fl, 1 / Math.sqrt(fl));
     }
 
+    // aura pulse (opacity only — meshes keep authored non-uniform scale)
+    for (let i = 0; i < this.auraMats.length; i++) {
+      this.auraMats[i].opacity = 0.22 + (i === 0 ? 0.12 : 0.18) + Math.sin(t * 4 + i) * 0.07;
+    }
+
+    // wing flap while flying — preserve each mesh's authored side
+    if (this.flies) {
+      const flap = Math.sin(t * 9) * 0.22;
+      for (let i = 0; i < this.wingMeshes.length; i++) {
+        const w = this.wingMeshes[i];
+        const b = this.wingBases[i];
+        if (!b) continue;
+        w.rotation.x = b.x + Math.sign(b.x || 1) * flap;
+        w.rotation.y = b.y + Math.sign(b.y || 1) * flap * 0.35;
+      }
+    }
+
     // eyes & mouth
     this.blinkT -= dt;
     if (this.blinkT < -0.12) this.blinkT = 2 + Math.random() * 3;
     const closed = anim === 'sleep' || dead || this.blinkT < 0;
-    const squint = anim === 'attack' || anim === 'hurt' ? 0.65 : 1;
+    const squint = anim === 'attack' || anim === 'hurt' || this.fierceEyes ? 0.65 : 1;
     for (const e of this.eyes) e.scale.y = closed ? 0.12 : squint;
     if (this.mouth) this.mouth.scale.y = this.headR * (0.02 + mouth * 0.14);
   }
