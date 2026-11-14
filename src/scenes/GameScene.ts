@@ -16,7 +16,7 @@ import { audio } from '../systems/audio';
 import { noteBestiary } from '../systems/bestiary';
 import { addToInventory, applyHeal, decaySatiation, drinkWater, eatFood, eatFromSlot, hasInventorySpace, takeConsumable } from '../systems/diet';
 import { EvolutionProcess, canEvolve, completeEvolution, evolutionChecks, evolutionDuration } from '../systems/evolution';
-import { SKILL_SLOTS, computeStats, createPlayerState, displayName, finalFormIndex, formOf, isFinalForm, sanitizePlayerName, type PlayerState } from '../systems/playerState';
+import { SKILL_SLOTS, computeStats, createPlayerState, displayName, ensureLives, finalFormIndex, formOf, isFinalForm, sanitizePlayerName, type PlayerState } from '../systems/playerState';
 import { addExp, addMaturity, isMaturityFull, killReward } from '../systems/progression';
 import { SLOT_KEYS, addMastery, equipSkill, evolvePending, slotUnlocked, syncLearned, type SkillEvolution } from '../systems/skills';
 import { STATUS_INFO } from '../systems/status';
@@ -81,6 +81,8 @@ export class GameScene extends Phaser.Scene {
 
   private paused = false;
   private dead = false;
+  /** Soft-death in progress (waiting to respawn at a heal pillar). */
+  private dying = false;
   private started = false;
   private attackQueued = false;
   private tapAim = false;
@@ -139,6 +141,7 @@ export class GameScene extends Phaser.Scene {
     this.evo = new EvolutionProcess();
     this.paused = false;
     this.dead = false;
+    this.dying = false;
     this.started = false;
     this.attackQueued = false;
     this.tapAim = false;
@@ -194,9 +197,11 @@ export class GameScene extends Phaser.Scene {
     const state: PlayerState = save ? save.player : createPlayerState(data.speciesId as string, sx, sy);
     if (!save && data.playerName) state.name = sanitizePlayerName(data.playerName);
     if (!state.name) state.name = '';
+    ensureLives(state);
     if (travel) {
       state.x = sx;
       state.y = sy;
+      state.lives = BALANCE.lives.max;
     }
     this.clock = new WorldClock(save ? save.world.time : 0);
     this.weather = new WeatherSystem(this.seed);
@@ -479,9 +484,9 @@ export class GameScene extends Phaser.Scene {
     if (this.just('ESC') || T.take('pause')) {
       if (app.ui.openPanel === 'pause') this.resume();
       else if (app.ui.openPanel) app.ui.closeOverlay();
-      else if (!app.ui.modalOpen && !this.dead) this.openPause();
+      else if (!app.ui.modalOpen && !this.dead && !this.dying) this.openPause();
     }
-    if ((this.just('TAB') || T.take('char')) && !this.paused && !this.dead) {
+    if ((this.just('TAB') || T.take('char')) && !this.paused && !this.dead && !this.dying) {
       if (app.ui.openPanel === 'char') app.ui.closeOverlay();
       else if (!app.ui.modalOpen) this.openCharPanel();
     }
@@ -511,7 +516,7 @@ export class GameScene extends Phaser.Scene {
     this.updateWorldEvents(dt);
 
     // --- one-shot keys (gameplay) ---
-    const blocked = app.ui.modalOpen || this.dead;
+    const blocked = app.ui.modalOpen || this.dead || this.dying;
     if (!blocked && P.alive) this.handleActionKeys();
 
     // --- player ---
@@ -1613,7 +1618,7 @@ export class GameScene extends Phaser.Scene {
     this.paused = true;
     const ok = await app.ui.confirm(
       `Triệu hồi ${g.name}?`,
-      `<p>${esc(g.desc)}</p><p>Cấp <b>${g.level}</b> · Máu <b>${g.stats.maxHp}</b> · Sức mạnh <b>${g.stats.power}</b></p><p><small>Boss nổi điên khi còn một nửa máu. Nếu bạn chết, lượt chơi sẽ kết thúc.</small></p>`,
+      `<p>${esc(g.desc)}</p><p>Cấp <b>${g.level}</b> · Máu <b>${g.stats.maxHp}</b> · Sức mạnh <b>${g.stats.power}</b></p><p><small>Boss nổi điên khi còn một nửa máu. Hạ gục sẽ nạp đầy 5 tim. Hết tim sẽ chơi lại map từ đầu.</small></p>`,
       'Triệu hồi',
       'Để sau',
     );
@@ -1649,11 +1654,12 @@ export class GameScene extends Phaser.Scene {
     this.guardianDown = true;
     this.wv.setPortalOpen(true);
     S.coins += realm.guardianCoins;
+    S.lives = BALANCE.lives.max;
     audio.play('evolveDone');
     this.cameras.main.flash(500, 200, 160, 255);
     const gate = this.wv.portal;
     if (gate) this.fx.ring(gate.obj.x, gate.obj.y - 30, 0xc08aff, 12, 200, 1.2, 6);
-    app.ui.toast(`👑 Đã hạ ${n.def.name}! +${realm.guardianCoins} xu — Cổng Cổ đã mở.`, 'evo');
+    app.ui.toast(`👑 Đã hạ ${n.def.name}! +${realm.guardianCoins} xu — Cổng Cổ mở · tim đầy ${BALANCE.lives.max}♥`, 'evo');
     this.broadcastGuardian('down');
     this.saveNow(false);
     if (this.realm >= LAST_REALM) this.time.delayedCall(1800, () => void this.showVictory());
@@ -2015,7 +2021,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Writes a consistent snapshot of the whole run. Never saves a dead character. */
   saveNow(showToast: boolean): boolean {
-    if (!this.started || this.dead || !this.player.alive) return false;
+    if (!this.started || this.dead || this.dying || !this.player.alive) return false;
     const r = writeSave(localStorage, this.buildSave());
     if (!r.ok) app.ui.toast(`Không thể lưu: ${r.error}`, 'bad');
     else if (showToast) app.ui.toast('Đã tự động lưu.', 'good');
@@ -2023,26 +2029,127 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPlayerDeath(): void {
+    if (this.dead || this.dying) return;
     const P = this.player;
     const S = P.state;
+    ensureLives(S);
     P.alive = false;
-    this.dead = true;
     if (this.evo.active) this.interruptEvolution('Tiến hóa thất bại.');
     audio.play('death');
     audio.setEvolveDrone(false);
-    deleteSave(localStorage);
     this.combat.cancelOwner(P.uid);
+    S.lives = Math.max(0, S.lives - 1);
+
+    if (S.lives > 0) {
+      this.dying = true;
+      app.ui.toast(`Mất 1 tim · còn ${S.lives}/${BALANCE.lives.max}♥ — hồi sinh tại trụ máu gần nhất…`, 'bad');
+      this.time.delayedCall(1100, () => this.respawnAtNearestPillar());
+      return;
+    }
+
+    this.dead = true;
+    deleteSave(localStorage);
     const summary = {
       name: displayName(S),
       cause: this.lastDamageCause || 'Kiệt sức.',
       days: S.stats.daysSurvived,
       time: formatDuration(S.stats.timeAlive),
       level: S.level,
-      form: `${formOf(S).name} (dạng ${S.form + 1}/3) — ${realmOf(this.realm).name} (${this.realm + 1}/${REALMS.length})`,
+      form: `${formOf(S).name} (dạng ${S.form + 1}/5) — ${realmOf(this.realm).name} (${this.realm + 1}/${REALMS.length})`,
       kills: S.stats.kills,
       coins: S.coins,
+      realmName: realmOf(this.realm).name,
     };
-    this.time.delayedCall(1400, () => app.ui.showDeath(summary, () => app.newRun(), () => app.showMenu(null)));
+    this.time.delayedCall(1400, () =>
+      app.ui.showDeath(
+        summary,
+        () => this.restartCurrentMap(),
+        () => app.showMenu(null),
+        { mapFail: true },
+      ),
+    );
+  }
+
+  /** Nearest heal pillar to a world point (fallback: shelter, then spawn). */
+  private nearestRespawnPoint(x: number, y: number): { x: number; y: number } {
+    const dist = (p: { x: number; y: number }) => Math.hypot(p.x - x, p.y - y);
+    const pads = this.wv.healpads.map((h) => h.obj);
+    if (pads.length) return pads.slice().sort((a, b) => dist(a) - dist(b))[0]!;
+    const shelters = this.wv.shelters;
+    if (shelters.length) return shelters.slice().sort((a, b) => dist(a) - dist(b))[0]!;
+    return {
+      x: this.world.spawn.tx * T + T / 2,
+      y: this.world.spawn.ty * T + T / 2,
+    };
+  }
+
+  private respawnAtNearestPillar(): void {
+    if (this.dead || !this.dying) return;
+    const P = this.player;
+    const S = P.state;
+    const dest = this.nearestRespawnPoint(P.x, P.y);
+    let x = dest.x;
+    let y = dest.y;
+    for (const off of [0, 24, -24, 40, -40, 56]) {
+      for (const ang of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        const cx = dest.x + Math.cos(ang) * Math.abs(off);
+        const cy = dest.y + Math.sin(ang) * Math.abs(off);
+        if (isPositionFree(this.world, cx, cy, P.moveRadius, false)) {
+          x = cx;
+          y = cy;
+          break;
+        }
+      }
+    }
+    P.x = x;
+    P.y = y;
+    P.alive = true;
+    P.hp = P.maxHp;
+    P.iframes = 2.5;
+    P.stunT = 0;
+    P.buff = null;
+    P.action = null;
+    P.status.clear();
+    P.rest.wake();
+    S.hunger = Math.max(S.hunger, 35);
+    S.thirst = Math.max(S.thirst, 35);
+    this.dying = false;
+    this.lastTarget = null;
+    this.fx.ring(P.x, P.y, 0x7dffb0, 8, 90, 0.8, 5);
+    this.fx.burst(P.x, P.y - 16, 'spark', 18, { speed: 120, life: 0.7, tint: 0x7dffb0 });
+    this.cameras.main.flash(280, 80, 200, 140);
+    audio.play('coin');
+    app.ui.toast(`Hồi sinh tại trụ máu · còn ${S.lives}/${BALANCE.lives.max}♥`, 'good');
+    this.saveNow(false);
+  }
+
+  /** After all hearts are lost: keep character progress, regenerate the current realm map. */
+  private restartCurrentMap(): void {
+    const save = this.buildSave();
+    const p = save.player;
+    ensureLives(p);
+    p.lives = BALANCE.lives.max;
+    p.hp = computeStats(p).maxHp;
+    p.hunger = Math.max(p.hunger, 70);
+    p.thirst = Math.max(p.thirst, 70);
+    p.discoveredSectors = [];
+    p.discoveredBiomes = [];
+    p.markers = [];
+    save.world = {
+      ...save.world,
+      time: 0,
+      resources: {},
+      collectedCoins: [],
+      stonesUsed: [],
+      alphaDefeatedAt: null,
+      bosses: {},
+      guardianDown: false,
+    };
+    writeSave(localStorage, save);
+    audio.play('evolveDone');
+    this.cameras.main.fadeOut(500, 20, 10, 40);
+    this.started = false;
+    window.setTimeout(() => app.startGame({ mode: 'travel', save, multi: this.multiMode || undefined }), 550);
   }
 
   // ------------------------------------------------------------------ drawing
@@ -2485,6 +2592,8 @@ export class GameScene extends Phaser.Scene {
       warnings,
       target,
       quest,
+      lives: S.lives ?? BALANCE.lives.max,
+      maxLives: BALANCE.lives.max,
     };
   }
 

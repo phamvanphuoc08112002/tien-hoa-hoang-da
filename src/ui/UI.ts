@@ -65,6 +65,9 @@ export interface HudData {
   warnings: string[];
   target: { name: string; level: number; hp: number; maxHp: number; state: string; danger: string } | null;
   quest: { title: string; progress: number; target: number; done: boolean } | null;
+  /** Hearts left / max on the current map. */
+  lives: number;
+  maxLives: number;
 }
 
 export interface CharPanelData {
@@ -443,6 +446,7 @@ export class UI {
     this.hud.innerHTML = `
       <div class="vitals hud-box">
         <div class="name"><span data-e="name"></span><span data-e="lv"></span></div>
+        <div class="lives" data-e="lives" aria-label="Tim"></div>
         ${['hp:Máu:#e0524a', 'hunger:Độ no:#ff9a3a', 'thirst:Nước:#4aa8ff', 'stamina:Thể lực:#c8e05a', 'fatigue:Mệt mỏi:#b07aff']
           .map((s) => {
             const [k, l, c] = s.split(':');
@@ -585,6 +589,15 @@ export class UI {
     const E = this.els;
     E.name.textContent = d.playerName === d.formName ? d.formName : `${d.playerName} · ${d.formName}`;
     E.lv.textContent = `Cấp ${d.level}`;
+    if (E.lives) {
+      const max = Math.max(1, d.maxLives | 0);
+      const cur = Math.max(0, Math.min(max, d.lives | 0));
+      E.lives.innerHTML = Array.from({ length: max }, (_, i) =>
+        `<span class="${i < cur ? 'on' : 'off'}" aria-hidden="true">♥</span>`,
+      ).join('');
+      E.lives.title = `Tim: ${cur}/${max} — hết tim sẽ chơi lại map từ đầu`;
+      E.lives.classList.toggle('low', cur <= 1);
+    }
     const bar = (k: string, v: number, max: number, label: string, warn: boolean) => {
       E[k].style.width = `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
       E[`${k}-v`].textContent = label;
@@ -1122,12 +1135,25 @@ export class UI {
     o.querySelectorAll<HTMLElement>('[data-con]').forEach((b) => b.addEventListener('click', () => cb.buyConsumable(b.dataset.con as string)));
   }
 
-  showDeath(summary: { name: string; cause: string; days: number; time: string; level: number; form: string; kills: number; coins: number }, onRestart: () => void, onMenu: () => void): void {
+  showDeath(
+    summary: { name: string; cause: string; days: number; time: string; level: number; form: string; kills: number; coins: number; realmName?: string },
+    onRestart: () => void,
+    onMenu: () => void,
+    opts?: { mapFail?: boolean },
+  ): void {
     this.closeOverlay();
+    const mapFail = !!opts?.mapFail;
+    const title = mapFail
+      ? `Hết tim — thất bại tại ${summary.realmName ?? 'vùng đất này'}`
+      : `${summary.name} đã gục ngã`;
+    const blurb = mapFail
+      ? `<p style="color:#ff9a8a">${esc(summary.cause)}</p><p>Đã mất hết 5 tim. Map này chơi lại từ đầu — giữ cấp, dạng tiến hóa, chiêu và túi đồ.</p>`
+      : `<p style="color:#ff9a8a">${esc(summary.cause)}</p>`;
+    const primary = mapFail ? 'Chơi lại map này' : 'Bắt đầu lượt mới';
     this.death.innerHTML = `
       <div class="panel" style="text-align:center">
-        <h2>${esc(summary.name)} đã gục ngã</h2>
-        <p style="color:#ff9a8a">${esc(summary.cause)}</p>
+        <h2>${esc(title)}</h2>
+        ${blurb}
         <table class="stat-table" style="margin:0 auto">
           <tr><td>Dạng tiến hóa</td><td><b>${esc(summary.form)}</b></td></tr>
           <tr><td>Cấp độ</td><td><b>${summary.level}</b></td></tr>
@@ -1137,7 +1163,7 @@ export class UI {
         </table>
         <div class="row" style="justify-content:center">
           <button data-a="menu">Về menu</button>
-          <button class="primary" data-a="restart">Bắt đầu lượt mới</button>
+          <button class="primary" data-a="restart">${esc(primary)}</button>
         </div>
       </div>`;
     this.death.querySelector('[data-a=restart]')?.addEventListener('click', onRestart);

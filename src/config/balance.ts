@@ -253,6 +253,11 @@ export const BALANCE = {
   },
 
   autosaveIntervalSec: 45,
+
+  /** Player hearts: each death costs one; empty = restart the current map. */
+  lives: {
+    max: 5,
+  },
 } as const;
 
 export function expToNext(level: number): number {

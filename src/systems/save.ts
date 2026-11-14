@@ -6,7 +6,7 @@ import { SPECIES, getSpecies } from '../data/species';
 import { COLOR_VARIANTS } from '../data/shop';
 import type { Weather } from '../data/types';
 import type { PlayerState } from './playerState';
-import { sanitizePlayerName } from './playerState';
+import { ensureLives, sanitizePlayerName } from './playerState';
 import { ensureSkillState } from './skills';
 import { ensureBestiary } from './bestiary';
 
@@ -118,6 +118,7 @@ function sanitize(d: SaveData): SaveData {
   }
   ensureSkillState(p);
   ensureBestiary(p);
+  ensureLives(p);
   p.realm = isNum(p.realm) ? c(Math.floor(p.realm), 0, LAST_REALM) : 0;
   const w = d.world;
   w.guardianDown = w.guardianDown === true;
