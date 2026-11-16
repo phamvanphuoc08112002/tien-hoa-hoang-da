@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gallery 3D — Tiến hóa & Boss</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #0d1210;
+        color: #e8efe6;
+        padding: 24px;
+      }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      h2 {
+        margin: 32px 0 12px;
+        font-size: 20px;
+        border-bottom: 1px solid #2a3830;
+        padding-bottom: 8px;
+      }
+      .sub { color: #9aab9e; margin-bottom: 24px; }
+      .line { margin-bottom: 28px; }
+      .line-title {
+        font-size: 16px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .dot {
+        width: 12px; height: 12px; border-radius: 50%;
+        display: inline-block;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+      .card {
+        background: #161e1a;
+        border: 1px solid #2a3830;
+        border-radius: 12px;
+        padding: 10px;
+        width: 168px;
+        text-align: center;
+      }
+      .card img {
+        width: 144px;
+        height: 144px;
+        object-fit: contain;
+        background: radial-gradient(circle at 50% 70%, #243028, #121816);
+        border-radius: 8px;
+      }
+      .card .name { font-size: 13px; margin-top: 8px; font-weight: 600; }
+      .card .meta { font-size: 11px; color: #8a9a8e; margin-top: 2px; }
+      .bosses .card { width: 200px; }
+      .bosses .card img { width: 172px; height: 172px; }
+      .badge {
+        display: inline-block;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #3a2018;
+        color: #ffb080;
+        margin-top: 4px;
+      }
+      .badge.g { background: #1a2a38; color: #9ad0ff; }
+    </style>
+  </head>
+  <body>
+    <h1>Tiến hóa & Boss (3D)</h1>
+    <p class="sub">Hình preview chibi 3D từ engine game.</p>
+    <div id="evo"></div>
+    <div id="boss"></div>
+    <script type="module">
+      import { SPECIES } from './src/data/species.ts';
+      import { NPC_LIST, BOSS_IDS } from './src/data/npcs.ts';
+      import { REALMS } from './src/data/realms.ts';
+      import { chibiPreviewUrl } from './src/render3d/preview.ts';
+      import { renderBeastPreview } from './src/gfx/beastDrawer.ts';
+
+      function preview(art) {
+        return chibiPreviewUrl(art, art.pal, false, 1.9)
+          ?? renderBeastPreview(art, art.pal, false).toDataURL();
+      }
+
+      const evo = document.getElementById('evo');
+      evo.innerHTML = '<h2>Các cấp tiến hóa (5 dạng / dòng)</h2>';
+      for (const s of SPECIES) {
+        const wrap = document.createElement('div');
+        wrap.className = 'line';
+        wrap.innerHTML = `<div class="line-title"><span class="dot" style="background:${s.elementColor}"></span><strong>${s.lineName}</strong> <span style="color:#8a9a8e">(${s.element})</span></div>`;
+        const row = document.createElement('div');
+        row.className = 'row';
+        s.forms.forEach((f, i) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <img src="${preview(f.art)}" alt="${f.name}">
+            <div class="name">${f.name}</div>
+            <div class="meta">Dạng ${i + 1} · ${f.title}</div>
+          `;
+          row.appendChild(card);
+        });
+        wrap.appendChild(row);
+        evo.appendChild(wrap);
+      }
+
+      const bossBox = document.getElementById('boss');
+      bossBox.innerHTML = '<h2>Boss</h2>';
+      const row = document.createElement('div');
+      row.className = 'row bosses';
+
+      const worldBosses = BOSS_IDS.map((id) => NPC_LIST.find((n) => n.id === id)).filter(Boolean);
+      const guardians = REALMS.map((r) => ({ ...NPC_LIST.find((n) => n.id === r.guardian), realm: r.name })).filter((n) => n.id);
+
+      for (const n of worldBosses) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${preview(n.art)}" alt="${n.name}">
+          <div class="name">${n.name}</div>
+          <div class="meta">Lv ${n.level} · HP ${n.stats.maxHp}</div>
+          <div class="badge">Boss vùng</div>
+        `;
+        row.appendChild(card);
+      }
+      for (const n of guardians) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${preview(n.art)}" alt="${n.name}">
+          <div class="name">${n.name}</div>
+          <div class="meta">Lv ${n.level} · HP ${n.stats.maxHp}</div>
+          <div class="badge g">Giữ Cổng · ${n.realm}</div>
+        `;
+        row.appendChild(card);
+      }
+      bossBox.appendChild(row);
+    </script>
+  </body>
+</html>

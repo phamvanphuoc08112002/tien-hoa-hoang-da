@@ -185,7 +185,24 @@ export class ChibiModel {
       const sp: [number, number, number][] = [[-0.45, 0.7, 0.4], [0.05, 0.85, -0.3], [-0.15, 0.6, -0.6], [-0.6, 0.45, -0.5]];
       for (const [x, y, z] of sp) this.part(this.body, LOW_SPHERE, pal.light, [bw * x, bh * y, bd * z], [bw * 0.14, bh * 0.12, bw * 0.14], 0);
     }
+    if (has('scales')) {
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 5; c++) {
+          const x = -0.55 + (c + (r % 2) * 0.45) * 0.28;
+          const y = -0.15 + r * 0.35;
+          this.part(this.body, LOW_SPHERE, r % 2 ? pal.light : shadeColor(pal.base, 0.1).getStyle(), [bw * x, bh * y, bd * 0.72], [bw * 0.12, bh * 0.1, bw * 0.08], 0);
+        }
+      }
+    }
     const top = bh * 0.92;
+    if (has('ridge')) {
+      const n = Math.max(4, Math.round(a.bodyW / 2.5));
+      for (let k = 0; k < n; k++) {
+        const t = k / (n - 1);
+        const h = bh * (0.35 + Math.sin(t * Math.PI) * 0.35);
+        this.part(this.body, CONE, k % 2 ? pal.accent : pal.dark, [-bw * 0.75 + t * bw * 1.4, top + h * 0.35, 0], [bh * 0.14, h, bh * 0.14]);
+      }
+    }
     if (has('shell')) {
       this.part(this.body, SPHERE, pal.accent, [-bw * 0.05, bh * 0.2, 0], [bw * 0.98, bh * 0.92, bd * 1.04]);
       this.part(this.body, SPHERE, pal.accent2, [-bw * 0.15, bh * 0.75, 0], [bw * 0.5, bh * 0.35, bd * 0.55]);

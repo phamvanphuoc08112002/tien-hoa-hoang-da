@@ -336,11 +336,32 @@ function drawBeast(g: CanvasRenderingContext2D, a: BeastArt, pal: Palette, p: Po
     ellipse(g, cx + bw * 0.05, cy - bh * 0.45, 1.2, 1, pal.light);
     ellipse(g, cx - bw * 0.1, cy + bh * 0.1, 1, 0.9, pal.light);
   }
+  if (has('scales')) {
+    const rows = biped ? 3 : 4;
+    const cols = Math.max(3, Math.round(bw / 2.2));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const sx = cx - bw * 0.55 + (c + (r % 2) * 0.5) * ((bw * 1.05) / cols);
+        const sy = cy - bh * 0.35 + r * (bh * 0.28);
+        const sr = Math.max(0.7, Math.min(1.6, bw * 0.08));
+        ellipse(g, sx, sy, sr, sr * 0.72, r % 2 ? pal.light : shade(pal.base, 0.12));
+      }
+    }
+  }
   g.restore();
 
   // ---- back features (scaled down on biped so silhouette stays clean) ----
   const topY = cy - bh;
   const feat = biped ? 0.72 : 1;
+  if (has('ridge')) {
+    const n = Math.max(4, Math.round(bw / 2.4));
+    for (let k = 0; k < n; k++) {
+      const t = k / (n - 1);
+      const sx = cx - bw * 0.7 + t * bw * 1.35;
+      const sh = bh * (biped ? 0.28 : 0.42) * (0.55 + Math.sin(t * Math.PI) * 0.55);
+      poly(g, [sx - 1.2, topY + 1.5, sx, topY - sh, sx + 1.2, topY + 1.5], k % 2 ? pal.accent : pal.dark);
+    }
+  }
   if (has('shell')) {
     ellipse(g, cx - bw * 0.05, cy - bh * 0.2, bw * 0.95 * feat, bh * 1.0 * feat, pal.accent);
     g.save();

@@ -52,7 +52,11 @@ export type BeastFeature =
   /** Form 4: stands and walks on two legs. */
   | 'biped'
   /** Form 5: hovers / flies above the ground. */
-  | 'fly';
+  | 'fly'
+  /** Overlapping scale plates along the body (dragon read). */
+  | 'scales'
+  /** Dorsal ridge / sail of plates from neck to tail. */
+  | 'ridge'
 
 export interface BeastArt {
   /** Low-res frame size in art pixels (final texture is 2x). */

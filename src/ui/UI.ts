@@ -382,7 +382,7 @@ export class UI {
       </div>`;
     }).join('');
     this.select.innerHTML = `
-      <h2>Chọn sinh vật của bạn</h2>
+      <h2>Chọn rồng của bạn</h2>
       <div class="cards">${cards}</div>
       <div class="select-bar">
         <div class="name-row">
