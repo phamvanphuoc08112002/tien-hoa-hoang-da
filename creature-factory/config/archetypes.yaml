@@ -1,0 +1,22 @@
+archetypes:
+  quadruped:
+    implemented: true
+    description: Four legs, one head, one tail. Full offline mesh, rig, and animation generator.
+  biped:
+    implemented: false
+    description: Skeleton stub only. Distinct upright limb chain, not the quadruped skeleton.
+  winged:
+    implemented: false
+    description: Skeleton stub only. Wing bones are separate from the leg chains.
+  insectoid:
+    implemented: false
+    description: Skeleton stub only. Six legs on a thorax, not a quadruped renamed.
+  serpentine:
+    implemented: false
+    description: Skeleton stub only. Long spine, no leg chain.
+  aquatic:
+    implemented: false
+    description: Skeleton stub only. Fins and a fluke, no plantigrade feet.
+  hybrid:
+    implemented: false
+    description: Skeleton stub only. Placeholder limb slots that are not shared with other archetypes.

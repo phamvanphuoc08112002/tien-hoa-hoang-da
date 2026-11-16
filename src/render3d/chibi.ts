@@ -7,7 +7,21 @@ const LOW_SPHERE = new THREE.SphereGeometry(1, 10, 8);
 const CONE = new THREE.ConeGeometry(1, 1, 10);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 10);
 const OCTA = new THREE.OctahedronGeometry(1, 0);
-for (const g of [SPHERE, LOW_SPHERE, CONE, CYL, OCTA]) g.computeBoundingSphere();
+/** Bat wing in the XY plane, wrist at the origin, tip toward +Y. */
+function batWingGeometry(): THREE.ShapeGeometry {
+  const s = new THREE.Shape();
+  s.moveTo(0, 0);
+  s.bezierCurveTo(0.05, 0.45, 0.28, 0.95, 0.72, 1.22);
+  s.lineTo(1.28, 0.62);
+  s.lineTo(1.08, 0.08);
+  s.lineTo(0.62, -0.42);
+  s.quadraticCurveTo(0.22, -0.16, 0, 0);
+  const g = new THREE.ShapeGeometry(s, 8);
+  g.computeBoundingSphere();
+  return g;
+}
+const BAT_WING = batWingGeometry();
+for (const g of [SPHERE, LOW_SPHERE, CONE, CYL, OCTA, BAT_WING]) g.computeBoundingSphere();
 
 /** Animation names shared with the 2D sprite sheets. */
 export type ChibiAnim = 'idle' | 'walk' | 'attack' | 'eat' | 'rest' | 'sleep' | 'hurt' | 'dead';
@@ -43,6 +57,8 @@ export class ChibiModel {
   private fierceEyes = false;
   private biped = false;
   private flies = false;
+  /** Stylized standing dragon (evolution lines): neck, belly plates, membrane wings, curled tail. */
+  private dragon = false;
   private outlineMat: THREE.MeshBasicMaterial;
   private allMats: THREE.Material[] = [];
 
@@ -70,20 +86,21 @@ export class ChibiModel {
     const a = art;
     const has = (f: string) => (a.features as string[]).includes(f);
     this.fierceEyes = has('fierce_eyes');
-    this.biped = has('biped') || has('fly');
+    this.dragon = has('scales');
+    this.biped = has('biped') || has('fly') || this.dragon;
     this.flies = has('fly');
     this.outlineMat = new THREE.MeshBasicMaterial({ color: pal.outline, side: THREE.BackSide });
     this.allMats.push(this.outlineMat);
 
     // Mega / boss forms: mature beast proportions (smaller head, bulkier body) — not a baby on stilts.
     const menacing = this.fierceEyes || has('aura') || has('aura_burst');
-    this.hipY = Math.max(3, a.legLen * F * (this.biped ? 1.15 : menacing ? 0.85 : 0.7));
-    this.bw = a.bodyW * F * (this.biped ? 0.78 : menacing ? 0.92 : 0.8);
-    this.bh = a.bodyH * F * (this.biped ? 1.22 : menacing ? 1.08 : 0.95);
-    this.bd = Math.max(a.bodyH, a.bodyW * 0.62) * F * (this.biped ? 0.92 : menacing ? 1.05 : 0.95);
+    this.hipY = Math.max(3, a.legLen * F * (this.dragon ? 1.4 : this.biped ? 1.15 : menacing ? 0.85 : 0.7));
+    this.bw = a.bodyW * F * (this.dragon ? 0.68 : this.biped ? 0.78 : menacing ? 0.92 : 0.8);
+    this.bh = a.bodyH * F * (this.dragon ? 1.02 : this.biped ? 1.22 : menacing ? 1.08 : 0.95);
+    this.bd = Math.max(a.bodyH, a.bodyW * 0.62) * F * (this.dragon ? 0.82 : this.biped ? 0.92 : menacing ? 1.05 : 0.95);
     const { bw, bh, bd } = this;
-    this.bodyY = this.hipY + bh * (this.biped ? 1.2 : 0.82);
-    const R = a.headR * F * (this.biped ? 1.05 : menacing ? 1.15 : 1.45);
+    this.bodyY = this.hipY + bh * (this.biped ? 1.15 : 0.82);
+    const R = a.headR * F * (this.dragon ? 0.78 : this.biped ? 1.02 : menacing ? 1.15 : 1.45);
     this.headR = R;
 
     this.root.add(this.rig);
@@ -131,47 +148,54 @@ export class ChibiModel {
         this.auraMeshes.push(ray);
       }
     }
-    if (has('wings')) {
+    if (has('wings') || this.dragon) {
+      // Hinge turns the XY sail out to ±Z. Keep the 90° yaw on the hinge only, so the sheet is not edge-on.
+      const span = bh * (has('wings') ? (this.flies ? 3.1 : 2.6) : 2.05);
       for (const s of [-1, 1]) {
-        const span = this.flies ? 2.6 : 1.55;
-        // Flat membrane sails (cone stretched) read as wings, not backpack blobs.
-        const sail = this.part(
-          this.body,
-          CONE,
-          s < 0 ? pal.accent : pal.accent2,
-          [-bw * 0.08, bh * 0.4, s * bd * 0.45],
-          [bd * span * 0.65, bw * span * 1.15, bh * 0.1],
+        const hinge = new THREE.Group();
+        hinge.position.set(-bw * 0.08, bh * 0.28, s * bd * 0.15);
+        hinge.rotation.y = -s * (Math.PI / 2);
+        hinge.rotation.z = s * 0.55;
+        this.body.add(hinge);
+        const sail = this.part(hinge, BAT_WING, pal.light, [0, 0, 0], [span, span * 0.95, Math.max(0.8, bh * 0.045)], 0.4);
+        const membrane = this.part(hinge, BAT_WING, pal.accent2, [span * 0.08, span * 0.02, s * bh * 0.02], [span * 0.62, span * 0.58, Math.max(0.4, bh * 0.02)], 0);
+        for (let f = 0; f < 3; f++) {
+          const bone = this.part(sail, CYL, pal.belly, [0.22 + f * 0.28, 0.28 + f * 0.22, 0.05], [0.04, 0.7, 0.04], 0);
+          bone.rotation.z = -0.85 + f * 0.5;
+        }
+        this.wingMeshes.push(hinge, sail, membrane);
+        this.wingBases.push(
+          { x: hinge.rotation.x, y: hinge.rotation.y, z: hinge.rotation.z },
+          { x: sail.rotation.x, y: sail.rotation.y, z: sail.rotation.z },
+          { x: membrane.rotation.x, y: membrane.rotation.y, z: membrane.rotation.z },
         );
-        sail.rotation.set(s * (this.flies ? 1.25 : 0.95), s * (this.flies ? 0.4 : 0.22), Math.PI / 2 + s * 0.12);
-        this.wingMeshes.push(sail);
-        this.wingBases.push({ x: sail.rotation.x, y: sail.rotation.y, z: sail.rotation.z });
-        const membrane = this.part(
-          this.body,
-          CONE,
-          pal.light,
-          [bw * 0.02, bh * 0.22, s * bd * 0.32],
-          [bd * span * 0.42, bw * span * 0.78, bh * 0.07],
-          0,
-        );
-        membrane.rotation.set(s * (this.flies ? 1.15 : 0.85), s * 0.18, Math.PI / 2 + s * 0.08);
-        this.wingMeshes.push(membrane);
-        this.wingBases.push({ x: membrane.rotation.x, y: membrane.rotation.y, z: membrane.rotation.z });
-        const bone = this.part(
-          this.body,
-          CYL,
-          shadeColor(s < 0 ? pal.accent : pal.accent2, -0.25).getStyle(),
-          [-bw * 0.05, bh * 0.45, s * bd * 0.28],
-          [bw * 0.07, bw * span * 1.05, bw * 0.07],
-          0,
-        );
-        bone.rotation.z = Math.PI / 2;
-        bone.rotation.y = s * (this.flies ? 0.6 : 0.38);
       }
     }
 
     // ---- body ----
-    this.part(this.body, SPHERE, pal.base, [0, 0, 0], [bw, bh, bd]);
-    if (this.biped) {
+    this.part(this.body, SPHERE, pal.base, [0, 0, 0], [bw, bh * (this.dragon ? 0.92 : 1), bd]);
+    if (this.dragon) {
+      for (let k = 0; k < 5; k++) {
+        const y = bh * (0.28 - k * 0.2);
+        this.part(this.body, SPHERE, pal.belly, [bw * 0.48, y, 0], [bw * 0.26, bh * 0.15, bd * (0.46 - k * 0.03)], 0.3);
+      }
+      for (let k = 0; k < 4; k++) {
+        const t = (k + 1) / 4;
+        this.part(
+          this.body,
+          SPHERE,
+          pal.base,
+          [bw * (0.18 + t * 0.28), bh * (0.35 + t * 1.05), 0],
+          [bw * (0.36 - t * 0.1), bh * 0.3, bd * (0.34 - t * 0.06)],
+          0.45,
+        );
+        if (k < 3) {
+          const spike = this.part(this.body, CONE, pal.light, [bw * (0.02 + t * 0.08), bh * (0.55 + t * 0.85), 0], [bw * 0.07, bh * 0.32, bw * 0.07], 0.2);
+          spike.rotation.z = -0.35;
+        }
+      }
+    }
+    if (this.biped && !this.dragon) {
       // Broad shoulders / chest mass so mega forms read as powerful, not lanky.
       this.part(this.body, SPHERE, pal.base, [bw * 0.05, bh * 0.35, 0], [bw * 1.15, bh * 0.55, bd * 1.15]);
       this.part(this.body, SPHERE, shadeColor(pal.dark, -0.05).getStyle(), [0, -bh * 0.35, 0], [bw * 0.9, bh * 0.45, bd * 0.95], 0.6);
@@ -179,7 +203,7 @@ export class ChibiModel {
         this.part(this.body, SPHERE, pal.dark, [bw * 0.15, bh * 0.45, s * bd * 0.85], [bw * 0.38, bh * 0.32, bd * 0.35]);
       }
     }
-    this.part(this.body, SPHERE, pal.belly, [bw * 0.3, -bh * 0.28, 0], [bw * 0.68, bh * 0.66, bd * 0.8], 0.8);
+    if (!this.dragon) this.part(this.body, SPHERE, pal.belly, [bw * 0.3, -bh * 0.28, 0], [bw * 0.68, bh * 0.66, bd * 0.8], 0.8);
     if (has('stripes')) for (const k of [-0.45, -0.05, 0.35]) this.part(this.body, LOW_SPHERE, pal.dark, [bw * k, bh * 0.12, 0], [bw * 0.11, bh * 0.96, bd * 0.97], 0);
     if (has('spots')) {
       const sp: [number, number, number][] = [[-0.45, 0.7, 0.4], [0.05, 0.85, -0.3], [-0.15, 0.6, -0.6], [-0.6, 0.45, -0.5]];
@@ -203,17 +227,17 @@ export class ChibiModel {
         this.part(this.body, CONE, k % 2 ? pal.accent : pal.dark, [-bw * 0.75 + t * bw * 1.4, top + h * 0.35, 0], [bh * 0.14, h, bh * 0.14]);
       }
     }
-    if (has('shell')) {
+    if (has('shell') && !this.dragon) {
       this.part(this.body, SPHERE, pal.accent, [-bw * 0.05, bh * 0.2, 0], [bw * 0.98, bh * 0.92, bd * 1.04]);
       this.part(this.body, SPHERE, pal.accent2, [-bw * 0.15, bh * 0.75, 0], [bw * 0.5, bh * 0.35, bd * 0.55]);
     }
-    if (has('moss')) {
+    if (has('moss') && !this.dragon) {
       const ms: [number, number][] = [[-0.6, 0.15], [-0.2, -0.3], [0.2, 0.25], [-0.35, 0.45], [0.05, -0.05]];
       for (const [x, z] of ms) this.part(this.body, LOW_SPHERE, pal.dark, [bw * x, top * 0.92, bd * z], [bw * 0.28, bh * 0.26, bw * 0.28]);
       this.part(this.body, LOW_SPHERE, pal.accent2, [-bw * 0.3, top * 1.1, bd * 0.3], [1.6, 1.6, 1.6], 0);
       this.part(this.body, LOW_SPHERE, '#ff9ec4', [bw * 0.15, top * 1.08, -bd * 0.2], [1.6, 1.6, 1.6], 0);
     }
-    if (has('back_leaves')) {
+    if (has('back_leaves') && !this.dragon) {
       const n = a.bodyW > 9 ? 3 : 2;
       for (let k = 0; k < n; k++) {
         const x = -bw * 0.45 + (k * bw * 0.7) / Math.max(1, n - 1);
@@ -233,7 +257,7 @@ export class ChibiModel {
       const m = this.part(this.body, CONE, pal.accent, [-bw * 0.1, top + bh * 0.35, 0], [bw * 0.45, bh * 0.95, bw * 0.1]);
       m.rotation.z = 0.35;
     }
-    if (has('tree_crown')) {
+    if (has('tree_crown') && !this.dragon) {
       // Compact shoulder grove for biped; full canopy for quads.
       const sc = this.biped ? 0.85 : 1;
       const tx = -bw * (this.biped ? 0.12 : 0.15);
@@ -253,7 +277,24 @@ export class ChibiModel {
     const tl = a.tailLen * F;
     const tw = a.tailW * F;
     let tip = new THREE.Vector3(-tl * 0.6, tl * 0.5, 0);
-    switch (a.tailKind) {
+    if (this.dragon) {
+      const segs = 8;
+      const rad = tl * 0.62;
+      for (let k = 0; k < segs; k++) {
+        const t = k / (segs - 1);
+        const ang = -0.2 + t * Math.PI * 1.45;
+        const x = -Math.sin(ang) * rad;
+        const y = (1 - Math.cos(ang)) * rad * 1.05;
+        const z = Math.sin(t * Math.PI) * rad * 0.45;
+        const thick = tw * (0.62 - t * 0.36);
+        this.part(this.tail, SPHERE, t > 0.72 ? pal.light : pal.base, [x, y, z], [thick, thick * 0.82, thick], 0.3);
+        if (k % 2 === 0) {
+          const spike = this.part(this.tail, CONE, pal.belly, [x * 0.92, y + thick * 0.85, z], [thick * 0.28, thick * 0.9, thick * 0.28], 0.15);
+          spike.rotation.z = -0.4;
+        }
+        tip = new THREE.Vector3(x, y, z);
+      }
+    } else switch (a.tailKind) {
       case 'thin':
         for (let k = 0; k < 4; k++) {
           const t = (k + 1) / 4;
@@ -305,6 +346,12 @@ export class ChibiModel {
         this.part(g, CYL, s < 0 ? pal.dark : pal.base, [0, -thigh * 0.4, 0], [legR * 1.45, thigh, legR * 1.45], 0.8);
         this.part(g, CYL, shadeColor(s < 0 ? pal.dark : pal.base, -0.08).getStyle(), [legR * 0.2, -thigh - shin * 0.3, 0], [legR * 1.05, shin, legR * 1.05], 0.8);
         this.part(g, SPHERE, shadeColor(pal.dark, -0.15).getStyle(), [legR * 0.4, -thigh - shin + legR * 0.15, 0], [legR * 1.4, legR * 0.75, legR * 1.25]);
+        if (this.dragon) {
+          for (const cz of [-0.45, 0, 0.45]) {
+            const claw = this.part(g, CONE, pal.belly, [legR * 0.85, -thigh - shin + legR * 0.05, cz * legR * 0.55], [legR * 0.16, legR * 0.55, legR * 0.14], 0);
+            claw.rotation.z = -Math.PI / 2.15;
+          }
+        }
         this.legs.push(g);
         this.legBases.push(g.position.clone());
       }
@@ -318,7 +365,8 @@ export class ChibiModel {
         this.part(g, SPHERE, shadeColor(pal.dark, -0.1).getStyle(), [0, -armLen * 1.2, 0], [legR * 1.05, legR * 0.7, legR * 1.05]);
         // Claw tips.
         for (const cz of [-0.35, 0, 0.35]) {
-          this.part(g, CONE, pal.outline, [legR * 0.15, -armLen * 1.45, cz * legR], [legR * 0.18, legR * 0.45, legR * 0.18], 0);
+          const claw = this.part(g, CONE, this.dragon ? pal.belly : pal.outline, [legR * 0.15, -armLen * 1.45, cz * legR], [legR * 0.18, legR * 0.45, legR * 0.18], 0);
+          if (this.dragon) claw.rotation.z = -0.6;
         }
         this.legs.push(g);
         this.legBases.push(g.position.clone());
@@ -352,27 +400,35 @@ export class ChibiModel {
     // ---- head ----
     this.body.add(this.head);
     this.head.position.set(
-      this.biped ? bw * 0.12 + a.headDx * F * 0.02 : bw * 0.72 + a.headDx * F * 0.12,
-      this.biped ? bh * 1.12 + R * 0.62 : bh * 0.5 + R * 0.72,
+      this.dragon ? bw * 0.55 : this.biped ? bw * 0.12 + a.headDx * F * 0.02 : bw * 0.72 + a.headDx * F * 0.12,
+      this.dragon ? bh * 1.25 + R * 0.15 : this.biped ? bh * 1.12 + R * 0.62 : bh * 0.5 + R * 0.72,
       0,
     );
-    this.part(this.head, SPHERE, pal.base, [0, 0, 0], [R, R * 0.92, R * 0.98]);
-    // muzzle
     const muz = new THREE.Vector3(R * 0.72, -R * 0.3, 0);
-    if (a.snout > 0) {
-      const sl = a.snout * F * 0.32 + R * 0.3;
-      this.part(this.head, SPHERE, pal.belly, [muz.x, muz.y, 0], [sl, R * 0.32, R * 0.42], 0.8);
-      muz.x += sl * 0.85;
-    } else muz.x = R * 0.95;
-    this.part(this.head, LOW_SPHERE, pal.outline, [muz.x, muz.y + R * 0.12, 0], [R * 0.11, R * 0.09, R * 0.13], 0);
-    this.mouth = this.part(this.head, LOW_SPHERE, '#5a1a24', [muz.x - R * 0.12, muz.y - R * 0.18, 0], [R * 0.16, R * 0.02, R * 0.22], 0);
+    if (this.dragon) {
+      this.part(this.head, SPHERE, pal.base, [-R * 0.05, R * 0.05, 0], [R * 0.88, R * 0.7, R * 0.8]);
+      this.part(this.head, SPHERE, pal.base, [R * 1.35, -R * 0.08, 0], [R * 1.45, R * 0.36, R * 0.4]);
+      this.part(this.head, SPHERE, pal.belly, [R * 1.25, -R * 0.38, 0], [R * 1.05, R * 0.24, R * 0.34]);
+      muz.set(R * 2.15, -R * 0.08, 0);
+      for (const s of [-1, 1]) this.part(this.head, LOW_SPHERE, pal.outline, [R * 2.35, R * 0.02, s * R * 0.12], [R * 0.08, R * 0.06, R * 0.07], 0);
+      this.mouth = this.part(this.head, LOW_SPHERE, '#5a1a24', [R * 1.35, -R * 0.42, 0], [R * 0.42, R * 0.05, R * 0.22], 0);
+    } else {
+      this.part(this.head, SPHERE, pal.base, [0, 0, 0], [R, R * 0.92, R * 0.98]);
+      if (a.snout > 0) {
+        const sl = a.snout * F * 0.32 + R * 0.3;
+        this.part(this.head, SPHERE, pal.belly, [muz.x, muz.y, 0], [sl, R * 0.32, R * 0.42], 0.8);
+        muz.x += sl * 0.85;
+      } else muz.x = R * 0.95;
+      this.part(this.head, LOW_SPHERE, pal.outline, [muz.x, muz.y + R * 0.12, 0], [R * 0.11, R * 0.09, R * 0.13], 0);
+      this.mouth = this.part(this.head, LOW_SPHERE, '#5a1a24', [muz.x - R * 0.12, muz.y - R * 0.18, 0], [R * 0.16, R * 0.02, R * 0.22], 0);
+    }
     // cheeks — skip blush on mega / boss forms (reads too babyish)
     if (!this.biped && !this.fierceEyes && !has('aura') && !has('aura_burst'))
       for (const s of [-1, 1]) this.part(this.head, LOW_SPHERE, '#ff8fa8', [R * 0.55, -R * 0.32, s * R * 0.72], [R * 0.16, R * 0.1, R * 0.1], 0).material = this.mat('#ff9fb4', 0.75);
     // eyes — mega forms get fierce glowing slits + brow ridges
     for (const s of [-1, 1]) {
-      const n = new THREE.Vector3(0.68, 0.18, s * 0.6).normalize();
-      const e = R * (this.biped ? 0.3 : 0.34);
+      const n = this.dragon ? new THREE.Vector3(0.35, 0.22, s * 0.85).normalize() : new THREE.Vector3(0.68, 0.18, s * 0.6).normalize();
+      const e = R * (this.dragon ? 0.22 : this.biped ? 0.3 : 0.34);
       const g = new THREE.Group();
       g.position.copy(n.clone().multiplyScalar(R * 0.9));
       g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
@@ -395,7 +451,7 @@ export class ChibiModel {
       this.eyes.push(g);
     }
     // ears
-    if (has('leaf_ears'))
+    if (!this.dragon && has('leaf_ears'))
       for (const s of [-1, 1]) {
         const m = this.part(this.head, SPHERE, pal.light, [-R * 0.15, R * 0.7, s * R * 0.62], [R * 0.32, R * 0.6, R * 0.12]);
         m.rotation.set(s * 0.75, 0, 0.25);
@@ -408,7 +464,7 @@ export class ChibiModel {
         inner.rotation.x = s * 0.4;
       }
     if (has('round_ears')) for (const s of [-1, 1]) this.part(this.head, SPHERE, pal.dark, [-R * 0.1, R * 0.78, s * R * 0.6], [R * 0.3, R * 0.3, R * 0.2]);
-    if (has('long_ears'))
+    if (!this.dragon && has('long_ears'))
       for (const s of [-1, 1]) {
         const m = this.part(this.head, SPHERE, pal.base, [-R * 0.2, R * 1.25, s * R * 0.38], [R * 0.2, R * 0.72, R * 0.26]);
         m.rotation.x = s * 0.25;
@@ -418,21 +474,31 @@ export class ChibiModel {
         const m = this.part(this.head, CONE, pal.accent, [-R * 0.25, R * 0.3, s * R * 0.95], [R * 0.32, R * 0.85, R * 0.12]);
         m.rotation.set(s * 1.1, 0, 0.7);
       }
-    if (has('horns')) for (const s of [-1, 1]) this.part(this.head, CONE, pal.accent, [R * 0.2, R * 1.0, s * R * 0.32], [R * 0.2, R * 0.7, R * 0.2]).rotation.set(s * 0.25, 0, -0.3);
-    if (has('big_horns'))
+    if (this.dragon) {
+      const hornR = R * (has('big_horns') || has('curled_horns') || has('antlers') ? 0.7 : 0.5);
+      for (const s of [-1, 1]) {
+        const tor = new THREE.TorusGeometry(hornR, R * 0.11, 8, 20, Math.PI * 1.35);
+        const m = this.part(this.head, tor, pal.belly, [-R * 0.2, R * 1.15, s * R * 0.16], [1, 1, 1], 0.35);
+        m.rotation.set(0.4, s * 0.9, s * 1.15);
+        const brow = this.part(this.head, CONE, pal.light, [R * 0.35, R * 0.62, s * R * 0.28], [R * 0.1, R * 0.48, R * 0.1], 0.2);
+        brow.rotation.set(s * 0.35, 0, -0.7);
+      }
+    }
+    if (!this.dragon && has('horns')) for (const s of [-1, 1]) this.part(this.head, CONE, pal.accent, [R * 0.2, R * 1.0, s * R * 0.32], [R * 0.2, R * 0.7, R * 0.2]).rotation.set(s * 0.25, 0, -0.3);
+    if (!this.dragon && has('big_horns'))
       for (const s of [-1, 1]) {
         const hs = this.biped ? 1.25 : 1;
         const tor = new THREE.TorusGeometry(R * 0.55 * hs, R * 0.14 * hs, 8, 14, Math.PI * 0.85);
         const m = this.part(this.head, tor, pal.accent, [-R * 0.25, R * 0.8 * hs, s * R * 0.42], [1, 1, 1]);
         m.rotation.set(0, s * 0.35, 0.2);
       }
-    if (has('curled_horns'))
+    if (!this.dragon && has('curled_horns'))
       for (const s of [-1, 1]) {
         const tor = new THREE.TorusGeometry(R * 0.32, R * 0.12, 8, 14, Math.PI * 1.6);
         const m = this.part(this.head, tor, pal.accent, [-R * 0.1, R * 0.5, s * R * 0.85], [1, 1, 1]);
         m.rotation.set(0, 0, 0.6);
       }
-    if (has('antlers'))
+    if (!this.dragon && has('antlers'))
       for (const s of [-1, 1]) {
         const m = this.part(this.head, CYL, pal.accent, [-R * 0.1, R * 1.3, s * R * 0.4], [R * 0.07, R * 0.9, R * 0.07]);
         m.rotation.x = s * 0.35;
@@ -612,7 +678,7 @@ export class ChibiModel {
       const isArm = this.biped && i >= 2;
       const swingAmt = isArm ? 0.55 : this.flies ? 0.25 : 1;
       L.rotation.z = legSwing * s * swingAmt;
-      L.rotation.x = isArm ? -0.35 + (this.flies ? 0.2 : 0) : this.flies ? 0.45 : 0;
+      L.rotation.x = isArm ? (this.dragon ? -1.05 : -0.35) + (this.flies ? 0.2 : 0) : this.flies ? 0.45 : 0;
       L.scale.y = 1 - this.lie * 0.75;
       L.position.set(
         base.x + this.lunge * this.bw * (isArm ? 0.15 : 0.28),
@@ -636,9 +702,9 @@ export class ChibiModel {
       this.auraMats[i].opacity = 0.22 + (i === 0 ? 0.12 : 0.18) + Math.sin(t * 4 + i) * 0.07;
     }
 
-    // wing flap while flying — preserve each mesh's authored side
-    if (this.flies) {
-      const flap = Math.sin(t * 9) * 0.22;
+    // wing flap — full beat in flight, a slow idle sway otherwise
+    if (this.wingMeshes.length) {
+      const flap = this.flies ? Math.sin(t * 9) * 0.22 : Math.sin(t * 2.1) * 0.06;
       for (let i = 0; i < this.wingMeshes.length; i++) {
         const w = this.wingMeshes[i];
         const b = this.wingBases[i];

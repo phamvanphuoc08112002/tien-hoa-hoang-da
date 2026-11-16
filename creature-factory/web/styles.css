@@ -1,0 +1,61 @@
+:root {
+  color-scheme: dark;
+  --bg: #16130f;
+  --panel: #241e18;
+  --ink: #f4efe6;
+  --muted: #b7aa98;
+  --line: #3c3228;
+  --amber: #e3a008;
+  --good: #8fbf7a;
+  --bad: #d2644a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+header, main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; }
+header { display: flex; justify-content: space-between; gap: 24px; align-items: end; padding: 28px 0 12px; }
+h1 { margin: 0; font-size: 32px; letter-spacing: -0.03em; }
+h2 { margin: 0 0 12px; font-size: 18px; }
+.eyebrow { margin: 0; color: var(--amber); text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; }
+#banner { max-width: 460px; color: var(--muted); }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding-bottom: 40px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.wide { grid-column: 1 / -1; }
+form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+.wide { grid-column: 1 / -1; }
+input, select, textarea {
+  background: #120f0c;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+button {
+  grid-column: 1 / -1;
+  background: var(--amber);
+  color: #1a1204;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bar { height: 10px; background: #120f0c; border-radius: 999px; overflow: hidden; }
+.bar span { display: block; height: 100%; width: 0; background: var(--amber); }
+.previews { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.previews img { width: 100%; background: #120f0c; border-radius: 10px; min-height: 80px; }
+#download { color: var(--amber); }
+.tool, .card { border-top: 1px solid var(--line); padding: 8px 0; }
+.tool b, .card b { color: var(--ink); }
+.ok { color: var(--good); }
+.no { color: var(--bad); }
+@media (max-width: 800px) {
+  main, form, .previews { grid-template-columns: 1fr; }
+  header { flex-direction: column; align-items: start; }
+}

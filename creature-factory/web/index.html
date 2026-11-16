@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Creature Factory</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Offline MVP</p>
+      <h1>Creature Factory</h1>
+    </div>
+    <p id="banner">Checking which tools are actually installed…</p>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Generate</h2>
+      <form id="form">
+        <label>Species <input name="species" value="Emberback" required /></label>
+        <label>Archetype
+          <select name="archetype">
+            <option value="quadruped">quadruped (implemented)</option>
+            <option value="biped">biped (stub)</option>
+            <option value="winged">winged (stub)</option>
+            <option value="insectoid">insectoid (stub)</option>
+            <option value="serpentine">serpentine (stub)</option>
+            <option value="aquatic">aquatic (stub)</option>
+            <option value="hybrid">hybrid (stub)</option>
+          </select>
+        </label>
+        <label>Category <input name="category" value="beast" /></label>
+        <label>Style <input name="style" value="stylized_aaa" /></label>
+        <label>Quality profile
+          <select name="quality_profile">
+            <option value="stylized_aaa">stylized AAA</option>
+            <option value="preview">preview (faster)</option>
+          </select>
+        </label>
+        <label>Element <input name="element" value="fire" /></label>
+        <label>Rarity <input name="rarity" value="rare" /></label>
+        <label>Surface <input name="surface_material" value="scales" /></label>
+        <label>Horns <input name="horns" type="number" min="0" max="4" value="2" /></label>
+        <label>Spikes <input name="spikes" type="number" min="0" max="4" value="0" /></label>
+        <label>Batch <input name="batch" type="number" min="1" max="4" value="1" /></label>
+        <label class="wide">Palette
+          <input name="palette" value="#8C3A2F, #C4622D, #E3A008, #F4E1C1" />
+        </label>
+        <label class="wide">Prompt
+          <textarea name="prompt" rows="4">A stylized quadrupedal ember-backed beast. Four legs, one horned head, one long tail, no wings.</textarea>
+        </label>
+        <button type="submit">Generate</button>
+        <p id="form-status"></p>
+      </form>
+    </section>
+    <section class="panel" id="active">
+      <h2>Job</h2>
+      <p id="job-empty">No job yet.</p>
+      <div id="job" hidden>
+        <div class="bar"><span id="bar"></span></div>
+        <p id="job-meta"></p>
+        <div class="previews">
+          <img id="concept" alt="Concept preview" />
+          <img id="mesh" alt="Mesh preview" />
+        </div>
+        <p id="score"></p>
+        <p id="rig"></p>
+        <a id="download" hidden>Download folder</a>
+      </div>
+    </section>
+    <section class="panel wide">
+      <h2>Library</h2>
+      <div id="library"></div>
+    </section>
+    <section class="panel wide">
+      <h2>Tools on this machine</h2>
+      <div id="tools"></div>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+profiles:
+  stylized_aaa:
+    label: Stylized AAA
+    tri_min: 10000
+    tri_max: 40000
+    texture_size: 2048
+    lod_count: 4
+    min_animations: 6
+    require_pbr: true
+    require_collision: true
+    description: >
+      Default game-ready target. Hero mesh 10k-40k triangles, 2K PBR textures,
+      clean UVs, named bones, LOD0-LOD3, collision, and at least six animations.
+  preview:
+    label: Preview
+    tri_min: 2000
+    tri_max: 9000
+    texture_size: 128
+    lod_count: 4
+    min_animations: 6
+    require_pbr: true
+    require_collision: true
+    description: >
+      Same checks as the AAA profile with a smaller mesh and texture so tests
+      and dashboard previews finish quickly. This is not the shipping target.

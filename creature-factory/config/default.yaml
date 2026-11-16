@@ -1,0 +1,19 @@
+# Active path is the offline MVP. External engines are probed at runtime
+# and are not invoked unless a probe says they are installed.
+generator: offline_mvp
+job_backend: inline
+metadata_backend: sqlite
+storage_backend: local
+quality_profile: stylized_aaa
+max_retries: 2
+host: 127.0.0.1
+port: 8765
+
+redis_url: redis://127.0.0.1:6379/0
+postgres_dsn: postgresql://creature:creature@127.0.0.1:5432/creature_factory
+minio_endpoint: http://127.0.0.1:9000
+comfyui_url: http://127.0.0.1:8188
+blender_path: null
+
+output_dir: outputs
+database_path: data/factory.sqlite

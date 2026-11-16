@@ -1,0 +1,25 @@
+[project]
+name = "creature-factory"
+version = "0.1.0"
+description = "Offline-first AI creature factory MVP for an Unreal Engine 5 pipeline."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "pydantic>=2.9",
+  "numpy>=2",
+  "Pillow>=10",
+  "PyYAML>=6",
+  "python-multipart>=0.0.9",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
