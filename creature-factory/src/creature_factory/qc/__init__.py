@@ -8,10 +8,11 @@ import numpy as np
 from PIL import Image
 
 from creature_factory.anim.clips import CLIP_NAMES, Clip
+from creature_factory.anim.humanoid_clips import HUMANOID_CLIP_NAMES
 from creature_factory.export.gltf_writer import validate_gltf
 from creature_factory.mesh import Mesh, boundary_and_nonmanifold, degenerate_quads, signed_volume, triangle_area
 from creature_factory.math3d import v3
-from creature_factory.rig import QUADRUPED_REQUIRED, validate_hierarchy
+from creature_factory.rig import BIPED_REQUIRED, QUADRUPED_REQUIRED, validate_hierarchy
 from creature_factory.rig.skeleton import Skeleton, skin_vertex
 
 CHECKS = {
@@ -68,11 +69,15 @@ def _segment_hits(origin: np.ndarray, dest: np.ndarray, triangles: np.ndarray) -
     return False
 
 
+def _is_biped(skeleton: Skeleton) -> bool:
+    return "thigh_l" in skeleton.parent and "thigh_fl" not in skeleton.parent
+
+
 def _penetration(mesh: Mesh, skeleton: Skeleton) -> str | None:
     positions = mesh.positions
     body_tris = []
     for quad, part in zip(mesh.quads, mesh.parts):
-        if part.startswith(("leg_", "horn_", "spike_")):
+        if part.startswith(("leg_", "arm_", "horn_", "spike_", "sword", "cape", "boot", "hand_", "pants", "pouch")):
             continue
         a, b, c, d = quad
         body_tris.append([positions[a], positions[b], positions[c]])
@@ -80,6 +85,16 @@ def _penetration(mesh: Mesh, skeleton: Skeleton) -> str | None:
     if not body_tris:
         return "no body triangles to test"
     triangles = np.array(body_tris, dtype=np.float64)
+    if _is_biped(skeleton):
+        chains = (("l", "calf_l", "foot_l", "toe_l"), ("r", "calf_r", "foot_r", "toe_r"))
+        for side, knee_name, ankle_name, toe_name in chains:
+            knee = skeleton.rest_world[knee_name]
+            ankle = skeleton.rest_world[ankle_name]
+            toe = skeleton.rest_world[toe_name]
+            for start, end in ((knee, ankle), (ankle, toe)):
+                if _segment_hits(start, end, triangles):
+                    return f"{side} limb segment intersects the body shell"
+        return None
     for side in ("fl", "fr", "hl", "hr"):
         knee = skeleton.rest_world[f"shin_{side}"]
         ankle = skeleton.rest_world[f"foot_{side}"]
@@ -91,8 +106,9 @@ def _penetration(mesh: Mesh, skeleton: Skeleton) -> str | None:
 
 
 def _planted_error(skeleton: Skeleton, clip: Clip) -> float:
+    sides = ("l", "r") if _is_biped(skeleton) else ("fl", "fr", "hl", "hr")
     worst = 0.0
-    for side in ("fl", "fr", "hl", "hr"):
+    for side in sides:
         flags = clip.contacts[f"foot_{side}"]
         for frame in range(len(flags) - 1):
             if not (flags[frame] and flags[frame + 1]):
@@ -158,28 +174,36 @@ def evaluate_creature(
 
     ys = [float(point[1]) for point in lod0.positions]
     zs = [float(point[2]) for point in lod0.positions]
-    oriented = (
-        min(ys) <= 0.02
-        and 0.5 <= max(ys) <= 3.5
-        and max(zs) - min(zs) > 1.0
-        and float(skeleton.rest_world["head"][2]) > float(skeleton.rest_world["pelvis"][2])
-        and float(skeleton.rest_world["tail_04"][2]) < float(skeleton.rest_world["pelvis"][2])
-    )
-    checks.append(
-        _result(
-            "scale_orientation",
-            oriented,
-            f"height {max(ys):.2f} m, length {max(zs) - min(zs):.2f} m, minY {min(ys):.3f}, facing +Z",
+    biped = _is_biped(skeleton)
+    if biped:
+        oriented = (
+            min(ys) <= 0.02
+            and 1.2 <= max(ys) <= 2.4
+            and float(skeleton.rest_world["head"][1]) > float(skeleton.rest_world["pelvis"][1])
+            and float(skeleton.rest_world["hand_r"][0]) > 0.05
+            and float(skeleton.rest_world["hand_l"][0]) < -0.05
         )
-    )
+        orient_detail = f"height {max(ys):.2f} m, minY {min(ys):.3f}, biped upright"
+    else:
+        oriented = (
+            min(ys) <= 0.02
+            and 0.5 <= max(ys) <= 3.5
+            and max(zs) - min(zs) > 1.0
+            and float(skeleton.rest_world["head"][2]) > float(skeleton.rest_world["pelvis"][2])
+            and float(skeleton.rest_world["tail_04"][2]) < float(skeleton.rest_world["pelvis"][2])
+        )
+        orient_detail = f"height {max(ys):.2f} m, length {max(zs) - min(zs):.2f} m, minY {min(ys):.3f}, facing +Z"
+    checks.append(_result("scale_orientation", oriented, orient_detail))
 
     hierarchy_errors = validate_hierarchy([(name, skeleton.parent[name]) for name in skeleton.names])
-    missing = [name for name in QUADRUPED_REQUIRED if name not in skeleton.parent]
+    required_bones = BIPED_REQUIRED if biped else QUADRUPED_REQUIRED
+    missing = [name for name in required_bones if name not in skeleton.parent]
     checks.append(
         _result(
             "bone_hierarchy",
             not hierarchy_errors and not missing,
-            "; ".join(hierarchy_errors + [f"missing {missing}" if missing else ""]).strip("; ") or "quadruped hierarchy ok",
+            "; ".join(hierarchy_errors + ([f"missing {missing}"] if missing else [])).strip("; ")
+            or ("biped hierarchy ok" if biped else "quadruped hierarchy ok"),
         )
     )
 
@@ -195,21 +219,27 @@ def evaluate_creature(
                 weight_errors.append(f"unknown bone {bone}")
                 break
             used.add(bone)
-    for required in ("pelvis", "head", "thigh_fl", "shin_fl", "foot_fl", "thigh_hl", "tail_01"):
+    weight_bones = (
+        ("pelvis", "head", "thigh_l", "calf_l", "foot_l", "thigh_r", "upperarm_r", "cape_01")
+        if biped
+        else ("pelvis", "head", "thigh_fl", "shin_fl", "foot_fl", "thigh_hl", "tail_01")
+    )
+    for required in weight_bones:
         if required not in used:
             weight_errors.append(f"{required} has no weights")
     checks.append(_result("skin_weights", not weight_errors, "; ".join(weight_errors) or "weights normalized"))
 
     inverse = skeleton.inverse_bind()
     _pos, _rot, rest_mats = skeleton.forward({})
-    best = max(range(len(lod0.weights)), key=lambda index: lod0.weights[index].get("shin_fl", 0.0))
-    shin_weight = lod0.weights[best].get("shin_fl", 0.0)
+    shin_name = "calf_l" if biped else "shin_fl"
+    best = max(range(len(lod0.weights)), key=lambda index: lod0.weights[index].get(shin_name, 0.0))
+    shin_weight = lod0.weights[best].get(shin_name, 0.0)
     head_index = max(range(len(lod0.weights)), key=lambda index: lod0.weights[index].get("head", 0.0))
     deform_ok = shin_weight > 0.45
-    detail = f"shin influence {shin_weight:.2f}"
+    detail = f"{shin_name} influence {shin_weight:.2f}"
     if deform_ok:
         rest_point = skin_vertex(lod0.positions[best], lod0.weights[best], rest_mats, inverse)
-        bent = {"shin_fl": np.array([0.0, 0.0, np.sin(0.2), np.cos(0.2)])}
+        bent = {shin_name: np.array([0.0, 0.0, np.sin(0.2), np.cos(0.2)])}
         _p, _r, bent_mats = skeleton.forward(bent)
         moved = skin_vertex(lod0.positions[best], lod0.weights[best], bent_mats, inverse)
         head_rest = skin_vertex(lod0.positions[head_index], lod0.weights[head_index], rest_mats, inverse)
@@ -217,7 +247,7 @@ def evaluate_creature(
         travel = float(np.linalg.norm(moved - rest_point))
         head_travel = float(np.linalg.norm(head_moved - head_rest))
         deform_ok = travel > 0.004 and head_travel < travel * 0.35 and np.allclose(rest_point, lod0.positions[best], atol=1e-3)
-        detail = f"shin moved {travel:.4f} m, head moved {head_travel:.4f} m"
+        detail = f"{shin_name} moved {travel:.4f} m, head moved {head_travel:.4f} m"
     checks.append(_result("joint_deformation", deform_ok, detail))
 
     slide_notes = []
@@ -241,7 +271,8 @@ def evaluate_creature(
     checks.append(_result("triangle_budget", tri_min <= tris <= tri_max, f"LOD0 {tris} triangles, target {tri_min}-{tri_max}"))
 
     names = list(clips)
-    anim_ok = len(names) >= int(profile["min_animations"]) and all(name in clips for name in CLIP_NAMES)
+    required_clips = HUMANOID_CLIP_NAMES if biped else CLIP_NAMES
+    anim_ok = len(names) >= int(profile["min_animations"]) and all(name in clips for name in required_clips)
     checks.append(_result("animation_set", anim_ok, "clips: " + ", ".join(names)))
 
     earned = sum(check["weight"] for check in checks if check["passed"])

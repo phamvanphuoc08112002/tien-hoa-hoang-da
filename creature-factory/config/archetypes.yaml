@@ -3,8 +3,10 @@ archetypes:
     implemented: true
     description: Four legs, one head, one tail. Full offline mesh, rig, and animation generator.
   biped:
-    implemented: false
-    description: Skeleton stub only. Distinct upright limb chain, not the quadruped skeleton.
+    implemented: true
+    description: >
+      Humanoid hero. Offline mesh, biped rig with cape and weapon bones, and seven core clips
+      (idle walk run attack skill hurt die). Type 1 hero pack first; later outfit types reuse this skeleton.
   winged:
     implemented: false
     description: Skeleton stub only. Wing bones are separate from the leg chains.

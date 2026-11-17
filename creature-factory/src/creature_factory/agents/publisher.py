@@ -58,15 +58,28 @@ if __name__ == "__main__":
     path = ctx.root / "unreal" / "import_creature.py"
     path.write_text(script, encoding="utf-8")
     skeleton = ctx.skeleton
+    if ctx.spec.archetype == "biped":
+        body_defs = (
+            ("chest", "box", 0.18),
+            ("head", "sphere", 0.12),
+            ("thigh_l", "capsule", 0.07),
+            ("thigh_r", "capsule", 0.07),
+            ("upperarm_l", "capsule", 0.05),
+            ("upperarm_r", "capsule", 0.05),
+        )
+        anim_states = ["idle", "walk", "run", "attack", "skill", "hurt", "die"]
+    else:
+        body_defs = (
+            ("spine_02", "box", 0.22),
+            ("head", "sphere", 0.16),
+            ("thigh_fl", "capsule", 0.06),
+            ("thigh_fr", "capsule", 0.06),
+            ("thigh_hl", "capsule", 0.06),
+            ("thigh_hr", "capsule", 0.06),
+        )
+        anim_states = ["idle", "walk", "run", "jump", "attack", "hit", "death"]
     bodies = []
-    for bone, shape, size in (
-        ("spine_02", "box", 0.22),
-        ("head", "sphere", 0.16),
-        ("thigh_fl", "capsule", 0.06),
-        ("thigh_fr", "capsule", 0.06),
-        ("thigh_hl", "capsule", 0.06),
-        ("thigh_hr", "capsule", 0.06),
-    ):
+    for bone, shape, size in body_defs:
         bodies.append(
             {
                 "bone": bone,
@@ -90,7 +103,7 @@ if __name__ == "__main__":
             "executed": False,
             "skeleton": "rig/skeleton.json",
             "default_state": "idle",
-            "states": ["idle", "walk", "run", "jump", "attack", "hit", "death"],
+            "states": anim_states,
             "note": "State list for a future AnimBP. It was not compiled.",
         },
     )

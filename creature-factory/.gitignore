@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 outputs/
+tools/
 data/*.sqlite
 data/*.sqlite3

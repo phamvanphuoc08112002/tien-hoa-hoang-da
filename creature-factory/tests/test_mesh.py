@@ -25,6 +25,18 @@ def _spec(**overrides) -> CreatureSpec:
     return CreatureSpec(**data)
 
 
+def test_elemental_silhouettes_are_not_the_same_mesh():
+    water = generate_quadruped(_spec(proportions={"length": 1.4, "bulk": 0.82, "leg": 0.78}))
+    earth = generate_quadruped(_spec(proportions={"length": 0.88, "bulk": 1.4, "leg": 0.78}, spikes=3))
+    water_z = max(p[2] for p in water.mesh.positions) - min(p[2] for p in water.mesh.positions)
+    earth_z = max(p[2] for p in earth.mesh.positions) - min(p[2] for p in earth.mesh.positions)
+    water_x = max(p[0] for p in water.mesh.positions) - min(p[0] for p in water.mesh.positions)
+    earth_x = max(p[0] for p in earth.mesh.positions) - min(p[0] for p in earth.mesh.positions)
+    assert water_z > earth_z * 1.15
+    assert earth_x > water_x * 1.1
+    assert len(earth.mesh.parts) > len(water.mesh.parts)
+
+
 def test_control_mesh_is_closed_quads():
     generated = generate_quadruped(_spec())
     mesh = generated.mesh

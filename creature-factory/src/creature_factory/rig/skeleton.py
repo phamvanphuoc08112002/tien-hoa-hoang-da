@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from creature_factory.math3d import ID_QUAT, mat4, quat_mul, quat_rotate, v3
-from creature_factory.rig import QUADRUPED_BONES, validate_hierarchy
+from creature_factory.rig import BIPED_BONES, QUADRUPED_BONES, Bone, validate_hierarchy
 
 
 @dataclass
@@ -50,18 +50,23 @@ class Skeleton:
         return float(np.linalg.norm(self.local_translation[name]))
 
 
-def build_skeleton(landmarks: dict[str, np.ndarray], scale: float = 1.0) -> Skeleton:
-    errors = validate_hierarchy(QUADRUPED_BONES)
+def build_skeleton(
+    landmarks: dict[str, np.ndarray],
+    scale: float = 1.0,
+    bones: list[Bone] | None = None,
+) -> Skeleton:
+    template = bones or QUADRUPED_BONES
+    errors = validate_hierarchy(template)
     if errors:
-        raise RuntimeError("quadruped template is invalid: " + "; ".join(errors))
-    missing = [name for name, _parent in QUADRUPED_BONES if name not in landmarks]
+        raise RuntimeError("skeleton template is invalid: " + "; ".join(errors))
+    missing = [name for name, _parent in template if name not in landmarks]
     if missing:
         raise RuntimeError(f"landmarks missing bones: {missing}")
-    parent = {name: owner for name, owner in QUADRUPED_BONES}
-    children = {name: [] for name, _owner in QUADRUPED_BONES}
+    parent = {name: owner for name, owner in template}
+    children = {name: [] for name, _owner in template}
     local = {}
     rest = {}
-    for name, owner in QUADRUPED_BONES:
+    for name, owner in template:
         rest[name] = np.array(landmarks[name], dtype=np.float64, copy=True)
         if owner is None:
             local[name] = rest[name].copy()
@@ -71,13 +76,17 @@ def build_skeleton(landmarks: dict[str, np.ndarray], scale: float = 1.0) -> Skel
             if float(np.linalg.norm(local[name])) < 1e-5:
                 raise RuntimeError(f"bone {name} is coincident with parent {owner}")
     return Skeleton(
-        names=[name for name, _owner in QUADRUPED_BONES],
+        names=[name for name, _owner in template],
         parent=parent,
         children=children,
         local_translation=local,
         rest_world=rest,
         scale=scale,
     )
+
+
+def build_biped_skeleton(landmarks: dict[str, np.ndarray], scale: float = 1.0) -> Skeleton:
+    return build_skeleton(landmarks, scale, BIPED_BONES)
 
 
 def skin_vertex(position: np.ndarray, weights: dict[str, float], world_mats: dict[str, np.ndarray], inverse_bind: dict[str, np.ndarray]) -> np.ndarray:

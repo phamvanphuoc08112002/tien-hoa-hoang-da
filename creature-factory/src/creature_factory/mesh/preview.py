@@ -11,16 +11,42 @@ from creature_factory.mesh import Mesh, vertex_normals
 
 
 def _color(part: str) -> np.ndarray:
+    if part == "eye_white":
+        return np.array([245, 245, 248], dtype=np.float64)
+    if part == "eye_pupil":
+        return np.array([18, 14, 12], dtype=np.float64)
+    if part.startswith("eye"):
+        return np.array([92, 58, 36], dtype=np.float64)
     if part.startswith("horn"):
-        return np.array([214, 164, 64], dtype=np.float64)
+        return np.array([232, 196, 120], dtype=np.float64)
     if part.startswith("spike"):
         return np.array([74, 34, 30], dtype=np.float64)
+    if part == "belly":
+        return np.array([236, 214, 184], dtype=np.float64)
     if part.startswith("leg"):
         return np.array([96, 50, 38], dtype=np.float64)
-    if part in {"head", "snout"}:
-        return np.array([186, 102, 66], dtype=np.float64)
+    if part in {"head", "snout", "skin"}:
+        return np.array([242, 199, 164], dtype=np.float64)
     if part == "tail":
         return np.array([122, 56, 40], dtype=np.float64)
+    if part in {"tunic", "armor", "cape", "vest"}:
+        return np.array([59, 111, 219], dtype=np.float64)
+    if part == "shirt":
+        return np.array([244, 246, 250], dtype=np.float64)
+    if part == "pants":
+        return np.array([92, 64, 48], dtype=np.float64)
+    if part in {"belt", "pouch"}:
+        return np.array([110, 70, 42], dtype=np.float64)
+    if part == "hair":
+        return np.array([92, 54, 36], dtype=np.float64)
+    if part == "boot":
+        return np.array([107, 62, 46], dtype=np.float64)
+    if part == "sword_hilt" or part == "gem":
+        return np.array([212, 168, 64], dtype=np.float64)
+    if part.startswith("sword"):
+        return np.array([120, 210, 255], dtype=np.float64)
+    if part.startswith(("arm_", "hand_")):
+        return np.array([232, 188, 150], dtype=np.float64)
     return np.array([156, 74, 48], dtype=np.float64)
 
 

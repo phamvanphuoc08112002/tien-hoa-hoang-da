@@ -23,3 +23,15 @@ profiles:
     description: >
       Same checks as the AAA profile with a smaller mesh and texture so tests
       and dashboard previews finish quickly. This is not the shipping target.
+  hero_stylized:
+    label: Hero Stylized
+    tri_min: 8000
+    tri_max: 15000
+    texture_size: 2048
+    lod_count: 4
+    min_animations: 6
+    require_pbr: true
+    require_collision: true
+    description: >
+      Type-1 humanoid hero from the Fantasy RPG sheet. LOD0 8k-15k triangles,
+      2K PBR, humanoid rig, at least six core animation clips.

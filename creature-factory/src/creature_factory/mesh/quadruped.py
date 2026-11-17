@@ -11,7 +11,7 @@ from creature_factory.math3d import lerp, normalize, v3
 from creature_factory.mesh import Mesh, boundary_and_nonmanifold, fix_winding, normalize_weights
 from creature_factory.specs import CreatureSpec
 
-SIDES = 12
+SIDES = 20
 LEG_ORDER = ("fl", "fr", "hl", "hr")
 
 BODY_UV = (0.02, 0.02, 0.48, 0.70)
@@ -45,34 +45,41 @@ class GeneratedQuadruped:
     notes: list[str] = field(default_factory=list)
 
 
-def _scaled_stations(scale: float) -> list[dict]:
+def _axis(spec: CreatureSpec, name: str, default: float, low: float, high: float) -> float:
+    value = float(spec.proportions.get(name, default) or default)
+    return min(high, max(low, value))
+
+
+def _scaled_stations(scale: float, length: float = 1.0, bulk: float = 1.0, height: float = 1.0) -> list[dict]:
+    # Haunch, tucked waist, deep chest, thin neck, wide skull, long snout.
+    # The tail drops, then the tip kicks up.
     raw = [
-        (-1.22, 0.64, 0.022, 0.018, "tail", {"tail_04": 1.0}),
-        (-1.06, 0.72, 0.042, 0.036, "tail", {"tail_04": 0.4, "tail_03": 0.6}),
-        (-0.90, 0.78, 0.064, 0.054, "tail", {"tail_03": 1.0}),
-        (-0.74, 0.84, 0.092, 0.078, "tail", {"tail_03": 0.35, "tail_02": 0.65}),
-        (-0.58, 0.87, 0.12, 0.10, "tail", {"tail_02": 1.0}),
-        (-0.42, 0.89, 0.15, 0.13, "tail", {"tail_02": 0.3, "tail_01": 0.7}),
-        (-0.26, 0.91, 0.19, 0.165, "pelvis", {"pelvis": 0.72, "tail_01": 0.28}),
-        (-0.10, 0.93, 0.205, 0.178, "spine", {"spine_01": 0.75, "pelvis": 0.25}),
-        (0.06, 0.94, 0.20, 0.172, "spine", {"spine_02": 0.8, "spine_01": 0.2}),
-        (0.22, 0.96, 0.215, 0.188, "chest", {"spine_03": 0.82, "spine_02": 0.18}),
-        (0.38, 0.99, 0.185, 0.162, "chest", {"spine_03": 1.0}),
-        (0.50, 1.08, 0.132, 0.122, "neck", {"neck_01": 0.6, "spine_03": 0.4}),
-        (0.58, 1.18, 0.118, 0.112, "neck", {"neck_01": 1.0}),
-        (0.67, 1.28, 0.128, 0.12, "head", {"head": 0.7, "neck_01": 0.3}),
-        (0.78, 1.34, 0.158, 0.146, "head", {"head": 1.0}),
-        (0.90, 1.33, 0.138, 0.122, "head", {"head": 1.0}),
-        (1.02, 1.28, 0.086, 0.074, "snout", {"head": 1.0}),
-        (1.12, 1.24, 0.038, 0.032, "snout", {"head": 1.0}),
+        (-1.34, 0.88, 0.020, 0.014, "tail", {"tail_04": 1.0}),
+        (-1.16, 0.70, 0.040, 0.032, "tail", {"tail_04": 0.4, "tail_03": 0.6}),
+        (-0.96, 0.64, 0.062, 0.050, "tail", {"tail_03": 1.0}),
+        (-0.76, 0.74, 0.092, 0.078, "tail", {"tail_03": 0.35, "tail_02": 0.65}),
+        (-0.56, 0.86, 0.125, 0.108, "tail", {"tail_02": 1.0}),
+        (-0.36, 0.96, 0.165, 0.145, "tail", {"tail_02": 0.3, "tail_01": 0.7}),
+        (-0.16, 1.02, 0.230, 0.200, "pelvis", {"pelvis": 0.72, "tail_01": 0.28}),
+        (0.02, 1.00, 0.195, 0.165, "spine", {"spine_01": 0.75, "pelvis": 0.25}),
+        (0.18, 1.04, 0.235, 0.205, "spine", {"spine_02": 0.8, "spine_01": 0.2}),
+        (0.34, 1.08, 0.255, 0.220, "chest", {"spine_03": 0.82, "spine_02": 0.18}),
+        (0.48, 1.16, 0.175, 0.155, "chest", {"spine_03": 1.0}),
+        (0.58, 1.32, 0.112, 0.125, "neck", {"neck_01": 0.6, "spine_03": 0.4}),
+        (0.66, 1.48, 0.100, 0.112, "neck", {"neck_01": 1.0}),
+        (0.78, 1.58, 0.155, 0.145, "head", {"head": 0.7, "neck_01": 0.3}),
+        (0.92, 1.60, 0.190, 0.155, "head", {"head": 1.0}),
+        (1.06, 1.52, 0.145, 0.115, "head", {"head": 1.0}),
+        (1.22, 1.42, 0.078, 0.055, "snout", {"head": 1.0}),
+        (1.36, 1.36, 0.026, 0.018, "snout", {"head": 1.0}),
     ]
     stations = []
     for z_pos, y_pos, radius_x, radius_y, region, weights in raw:
         stations.append(
             {
-                "center": v3(0.0, y_pos * scale, z_pos * scale),
-                "rx": radius_x * scale,
-                "ry": radius_y * scale,
+                "center": v3(0.0, y_pos * height * scale, z_pos * length * scale),
+                "rx": radius_x * bulk * scale,
+                "ry": radius_y * bulk * scale,
                 "region": region,
                 "weights": {name: float(value) for name, value in weights.items()},
             }
@@ -95,6 +102,29 @@ def _spine_landmarks(stations: list[dict]) -> dict[str, np.ndarray]:
         "tail_03": centers[2].copy(),
         "tail_04": centers[1].copy(),
     }
+
+
+def _section(angle: float, rx: float, ry: float, region: str) -> tuple[float, float]:
+    """Rounder than an ellipse, with a back ridge and a dropped belly."""
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    power = 2.0 / 2.35
+    px = math.copysign(abs(cosine) ** power, cosine)
+    py = math.copysign(abs(sine) ** power, sine)
+    if region in {"head", "snout"}:
+        px *= 1.12
+        if sine < 0.0:
+            py *= 0.82
+        if region == "snout" and sine > 0.0:
+            py *= 0.7
+    ridge = 0.0
+    belly = 1.0
+    if region in {"tail", "pelvis", "spine", "chest", "neck"}:
+        if sine > 0.4:
+            ridge = (sine - 0.4) * 0.62 * ry
+        if sine < -0.15:
+            belly = 1.22
+    return px * rx, py * ry * belly + ridge
 
 
 def _frame(points: list[np.ndarray]) -> tuple[list[np.ndarray], list[np.ndarray]]:
@@ -178,7 +208,16 @@ def _cap_loop(mesh: Mesh, ring: list[int], inside: np.ndarray, part: str, uv_rec
         mesh.add_quad(quad, _cell_uvs(uv_rect, index, len(quads)), part, inside)
 
 
-def _extrude(mesh: Mesh, boundary: list[int], centers: list[np.ndarray], radii: list[float], weight_list, part: str, uv_rect) -> None:
+def _extrude(
+    mesh: Mesh,
+    boundary: list[int],
+    centers: list[np.ndarray],
+    radii: list[float],
+    weight_list,
+    part: str,
+    uv_rect,
+    profiles: list[tuple[float, float]] | None = None,
+) -> None:
     tube_uv, cap_uv = _split_tube_cap(uv_rect)
     rings = [list(boundary)]
     prev_center = np.mean([mesh.positions[index] for index in boundary], axis=0)
@@ -187,16 +226,23 @@ def _extrude(mesh: Mesh, boundary: list[int], centers: list[np.ndarray], radii: 
         direction = center - prev_center
         length = float(np.linalg.norm(direction))
         direction = direction / length if length > 1e-8 else v3(0, -1, 0)
+        width_mul, height_mul = (1.0, 1.0) if profiles is None else profiles[step]
+        up_axis = v3(0.0, 1.0, 0.0) - direction * float(np.dot(v3(0.0, 1.0, 0.0), direction))
+        if float(np.linalg.norm(up_axis)) < 1e-6:
+            up_axis = v3(1.0, 0.0, 0.0)
+        up_axis = normalize(up_axis)
+        side_axis = normalize(np.cross(up_axis, direction), v3(1.0, 0.0, 0.0))
         new_ring = []
         for index in rings[-1]:
             radial = mesh.positions[index] - prev_center
             radial = radial - direction * float(np.dot(radial, direction))
-            radial_len = float(np.linalg.norm(radial))
-            if radial_len < 1e-8:
-                radial = v3(radius, 0, 0)
-            else:
-                radial = radial / radial_len * radius
-            new_ring.append(mesh.add_vertex(center + radial, weights))
+            side_amount = float(np.dot(radial, side_axis))
+            up_amount = float(np.dot(radial, up_axis))
+            if abs(side_amount) < 1e-8 and abs(up_amount) < 1e-8:
+                side_amount = radius
+            angle = math.atan2(up_amount, side_amount)
+            offset = side_axis * math.cos(angle) * radius * width_mul + up_axis * math.sin(angle) * radius * height_mul
+            new_ring.append(mesh.add_vertex(center + offset, weights))
         inside = (prev_center + center) * 0.5
         sides = len(rings[-1])
         v_a = step / steps
@@ -221,15 +267,16 @@ def _mix(mesh: Mesh, index: int, extra: dict[str, float], amount: float) -> None
     mesh.weights[index] = normalize_weights(mixed)
 
 
-def _place_leg(socket: np.ndarray, body_center: np.ndarray, side: float, scale: float):
+def _place_leg(socket: np.ndarray, body_center: np.ndarray, side: float, scale: float, leg: float = 1.0, forward: float = 1.0):
     outward = socket - body_center
     outward = v3(float(outward[0]), 0.0, 0.0)
     outward = normalize(outward, v3(side, 0, 0))
-    hip = socket + (body_center - socket) * 0.35
-    # Bent rest pose leaves reach slack so planted feet can stride without locking the knee.
-    knee = hip + normalize(v3(float(outward[0]) * 0.18, -0.55, 0.78), v3(0, -1, 0.4)) * (0.42 * scale)
-    ankle = knee + normalize(v3(float(outward[0]) * 0.05, -0.92, -0.42), v3(0, -1, 0)) * (0.40 * scale)
-    toe = ankle + v3(0.0, -0.04 * scale, 0.16 * scale)
+    hip = socket + (body_center - socket) * 0.22
+    # Front knees fold forward, hind knees fold back. The bend keeps gait slack.
+    ox = float(outward[0])
+    knee = hip + normalize(v3(ox * 0.28, -0.72, 0.62 * forward), v3(0, -1, 0)) * (0.40 * scale * leg)
+    ankle = knee + normalize(v3(ox * 0.06, -0.94, -0.28 * forward), v3(0, -1, 0)) * (0.36 * scale * leg)
+    toe = ankle + v3(ox * 0.02 * scale, -0.012 * scale, 0.22 * scale)
     return hip, knee, ankle, toe
 
 
@@ -260,6 +307,60 @@ def _add_box(mesh: Mesh, center: np.ndarray, extents: np.ndarray, weights: dict[
     )
     for index, face in enumerate(faces):
         mesh.add_quad(tuple(ids[i] for i in face), _cell_uvs(uv_rect, index, 6), part, center)
+
+
+def _smooth(mesh: Mesh, amount: float = 0.42, iterations: int = 2) -> None:
+    """Round the cage without opening it. Eyes stay crisp."""
+    protected = set()
+    for quad, part in zip(mesh.quads, mesh.parts):
+        if part.startswith("eye"):
+            protected.update(quad)
+    neighbors: list[list[int]] = [[] for _ in mesh.positions]
+    for quad in mesh.quads:
+        for index in range(4):
+            a = quad[index]
+            b = quad[(index + 1) % 4]
+            neighbors[a].append(b)
+            neighbors[b].append(a)
+    for _ in range(iterations):
+        updated = [position.copy() for position in mesh.positions]
+        for index, position in enumerate(mesh.positions):
+            if index in protected or not neighbors[index]:
+                continue
+            average = np.mean([mesh.positions[other] for other in neighbors[index]], axis=0)
+            updated[index] = position + (average - position) * amount
+        mesh.positions = updated
+
+
+def _add_eye(mesh: Mesh, center: np.ndarray, radius: float, weights: dict[str, float], part: str, uv_rect) -> None:
+    slices = 6
+    levels = (0.72, 0.28, -0.28, -0.72)
+    rings = []
+    for unit in levels:
+        ring_r = math.sqrt(max(1.0 - unit * unit, 0.0)) * radius
+        ring = []
+        for sector in range(slices):
+            angle = 2.0 * math.pi * sector / slices
+            ring.append(
+                mesh.add_vertex(
+                    center + v3(math.cos(angle) * ring_r, unit * radius, math.sin(angle) * ring_r),
+                    weights,
+                )
+            )
+        rings.append(ring)
+    steps = len(rings) - 1
+    for step in range(steps):
+        for sector in range(slices):
+            nxt = (sector + 1) % slices
+            mesh.add_quad(
+                (rings[step][sector], rings[step][nxt], rings[step + 1][nxt], rings[step + 1][sector]),
+                _ring_uv(uv_rect, sector, step / steps, (step + 1) / steps, slices),
+                part,
+                center,
+            )
+    cap_uv = (uv_rect[0], uv_rect[1], uv_rect[2], uv_rect[1] + (uv_rect[3] - uv_rect[1]) * 0.2)
+    _cap_loop(mesh, rings[0], center, part, cap_uv)
+    _cap_loop(mesh, list(reversed(rings[-1])), center, part, cap_uv)
 
 
 def build_proxy(landmarks: dict[str, np.ndarray], scale: float) -> Mesh:
@@ -318,10 +419,13 @@ def build_proxy(landmarks: dict[str, np.ndarray], scale: float) -> Mesh:
 
 
 def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
-    scale = float(spec.proportions.get("body_scale", 1.0) or 1.0)
-    if scale < 0.4 or scale > 2.5:
-        raise ValueError("body_scale must stay between 0.4 and 2.5 for the MVP generator")
-    stations = _scaled_stations(scale)
+    scale = _axis(spec, "body_scale", 1.0, 0.4, 2.5)
+    length = _axis(spec, "length", 1.0, 0.75, 1.45)
+    bulk = _axis(spec, "bulk", 1.0, 0.65, 1.45)
+    height = _axis(spec, "height", 1.0, 0.8, 1.35)
+    leg = _axis(spec, "leg", 1.0, 0.7, 1.35)
+    horn_scale = _axis(spec, "horn", 1.0, 0.6, 1.8)
+    stations = _scaled_stations(scale, length, bulk, height)
     points = [station["center"] for station in stations]
     rights, ups = _frame(points)
     mesh = Mesh()
@@ -330,11 +434,8 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
         ring = []
         for sector in range(SIDES):
             angle = 2.0 * math.pi * sector / SIDES
-            position = (
-                station["center"]
-                + right * math.cos(angle) * station["rx"]
-                + up * math.sin(angle) * station["ry"]
-            )
+            sx, sy = _section(angle, station["rx"], station["ry"], station["region"])
+            position = station["center"] + right * sx + up * sy
             ring.append(mesh.add_vertex(position, station["weights"]))
         rings.append(ring)
 
@@ -342,9 +443,11 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
     ring_count = len(rings) - 1
     for ring_index in range(ring_count):
         inside = (stations[ring_index]["center"] + stations[ring_index + 1]["center"]) * 0.5
-        part = stations[ring_index]["region"]
+        region = stations[ring_index]["region"]
         for sector in range(SIDES):
             nxt = (sector + 1) % SIDES
+            mid = 2.0 * math.pi * (sector + 0.5) / SIDES
+            part = "belly" if region in {"tail", "pelvis", "spine", "chest", "neck"} and math.sin(mid) < -0.45 else region
             v_a = ring_index / ring_count
             v_b = (ring_index + 1) / ring_count
             quad_at[(ring_index, sector)] = mesh.add_quad(
@@ -365,7 +468,8 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
     landmarks = _spine_landmarks(stations)
     remove: list[int] = []
     leg_pairs = {"hl": 6, "hr": 6, "fl": 9, "fr": 9}
-    leg_sectors = {"hl": 7, "hr": 10, "fl": 7, "fr": 10}
+    # Two underside sectors: left hole centered near 225°, right hole near 315°.
+    leg_sectors = {"hl": 12, "hr": 17, "fl": 12, "fr": 17}
     parent_bone = {"fl": "spine_03", "fr": "spine_03", "hl": "pelvis", "hr": "pelvis"}
 
     # Creature right is +X. Sector angles start at +right, so the +X side of the
@@ -374,13 +478,20 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
     for side in LEG_ORDER:
         ring_index = leg_pairs[side]
         sector = leg_sectors[side]
-        quad_index = quad_at[(ring_index, sector)]
-        va, vb, vc, vd = mesh.quads[quad_index]
-        boundary = [va, vb, vc, vd]
+        next_sector = (sector + 1) % SIDES
+        boundary = [
+            rings[ring_index][sector],
+            rings[ring_index][next_sector],
+            rings[ring_index][(sector + 2) % SIDES],
+            rings[ring_index + 1][(sector + 2) % SIDES],
+            rings[ring_index + 1][next_sector],
+            rings[ring_index + 1][sector],
+        ]
         socket = np.mean([mesh.positions[index] for index in boundary], axis=0)
         body_center = stations[ring_index]["center"]
         sign = 1.0 if float(socket[0] - body_center[0]) >= 0.0 else -1.0
-        hip, knee, ankle, toe = _place_leg(socket, body_center, sign, scale)
+        forward = 1.0 if side.startswith("f") else -1.0
+        hip, knee, ankle, toe = _place_leg(socket, body_center, sign, scale, leg, forward)
         landmarks[f"thigh_{side}"] = hip
         landmarks[f"shin_{side}"] = knee
         landmarks[f"foot_{side}"] = ankle
@@ -393,21 +504,30 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
         for index in boundary:
             _mix(mesh, index, {thigh: 0.75, parent: 0.25}, 0.7)
         hole_radius = float(np.mean([np.linalg.norm(mesh.positions[index] - socket) for index in boundary]))
+        thigh_r = max(hole_radius * 1.15, 0.11 * scale * (0.8 + 0.35 * bulk))
         centers = [
-            lerp(socket, knee, 0.42),
+            lerp(socket, knee, 0.28),
             knee,
-            lerp(knee, ankle, 0.5),
+            lerp(knee, ankle, 0.55),
             ankle,
-            lerp(ankle, toe, 0.62),
+            lerp(ankle, toe, 0.45),
             toe,
         ]
         radii = [
-            hole_radius * 0.92,
-            hole_radius * 0.78,
-            hole_radius * 0.62,
-            hole_radius * 0.55,
-            hole_radius * 0.48,
-            hole_radius * 0.36,
+            thigh_r * 1.05,
+            thigh_r * 0.92,
+            thigh_r * 0.62,
+            thigh_r * 0.50,
+            thigh_r * 0.95,
+            thigh_r * 0.72,
+        ]
+        profiles = [
+            (1.05, 1.15),
+            (1.10, 1.00),
+            (0.95, 1.15),
+            (0.90, 0.85),
+            (2.15, 0.42),
+            (1.75, 0.36),
         ]
         weights = [
             {thigh: 0.8, parent: 0.2},
@@ -417,22 +537,27 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
             {foot: 0.4, toe_name: 0.6},
             {toe_name: 1.0},
         ]
-        remove.append(quad_index)
-        _extrude(mesh, boundary, centers, radii, weights, f"leg_{side}", LEG_UV[side])
+        remove.append(quad_at[(ring_index, sector)])
+        remove.append(quad_at[(ring_index, next_sector)])
+        _extrude(mesh, boundary, centers, radii, weights, f"leg_{side}", LEG_UV[side], profiles)
 
     horn_count = min(int(spec.horns), 2)
-    horn_sectors = (2, 4)
+    horn_sectors = (3, 7)
     for horn_index in range(horn_count):
         sector = horn_sectors[horn_index]
         quad_index = quad_at[(14, sector)]
         boundary = list(mesh.quads[quad_index])
         socket = np.mean([mesh.positions[index] for index in boundary], axis=0)
         outward = socket - stations[14]["center"]
-        direction = normalize(v3(float(outward[0]) * 0.45, 1.0, -0.2), v3(0, 1, 0))
-        length = 0.18 * scale
-        centers = [socket + direction * length * t for t in (0.35, 0.62, 0.84, 1.0)]
-        radii = [0.03 * scale, 0.022 * scale, 0.014 * scale, 0.007 * scale]
-        weights = [{"head": 1.0}] * 4
+        length = 0.36 * scale * horn_scale
+        base = normalize(v3(float(outward[0]) * 0.55, 1.0, 0.08), v3(0, 1, 0))
+        swept = normalize(v3(float(outward[0]) * 0.12, 0.45, -1.0), v3(0, 1, -0.4))
+        centers = []
+        for t in (0.22, 0.42, 0.62, 0.82, 1.0):
+            direction = normalize(base * (1.0 - t) + swept * (t * 0.9), v3(0, 1, 0))
+            centers.append(socket + direction * length * t)
+        radii = [0.050 * scale, 0.040 * scale, 0.028 * scale, 0.016 * scale, 0.007 * scale]
+        weights = [{"head": 1.0}] * 5
         remove.append(quad_index)
         _extrude(mesh, boundary, centers, radii, weights, f"horn_{horn_index}", HORN_UV[horn_index])
 
@@ -440,21 +565,34 @@ def generate_quadruped(spec: CreatureSpec) -> GeneratedQuadruped:
     spike_rings = (4, 7, 8, 11)
     for spike_index in range(spike_count):
         ring_index = spike_rings[spike_index]
-        quad_index = quad_at[(ring_index, 3)]
+        quad_index = quad_at[(ring_index, SIDES // 4)]
         if quad_index in remove:
             continue
         boundary = list(mesh.quads[quad_index])
         socket = np.mean([mesh.positions[index] for index in boundary], axis=0)
-        direction = normalize(v3(0.0, 1.0, -0.05), v3(0, 1, 0))
-        length = 0.10 * scale
-        centers = [socket + direction * length * t for t in (0.45, 0.75, 1.0)]
-        radii = [0.02 * scale, 0.014 * scale, 0.006 * scale]
+        length = 0.18 * scale
+        direction = normalize(v3(0.0, 0.9, -0.35), v3(0, 1, 0))
+        centers = [socket + direction * length * t for t in (0.4, 0.72, 1.0)]
+        radii = [0.032 * scale, 0.018 * scale, 0.006 * scale]
         bone = stations[ring_index]["weights"]
         weights = [bone, bone, bone]
         remove.append(quad_index)
         _extrude(mesh, boundary, centers, radii, weights, f"spike_{spike_index}", SPIKE_UV[spike_index])
 
+    head = stations[14]
+    skull_forward = normalize(stations[15]["center"] - stations[13]["center"], v3(0, 0, 1))
+    eye_uvs = ((0.52, 0.74, 0.64, 0.86), (0.66, 0.74, 0.78, 0.86))
+    for eye_index, sign in enumerate((-1.0, 1.0)):
+        eye_center = (
+            head["center"]
+            + rights[14] * sign * head["rx"] * 0.92
+            + ups[14] * head["ry"] * 0.28
+            + skull_forward * head["rx"] * 0.35
+        )
+        _add_eye(mesh, eye_center, 0.042 * scale, {"head": 1.0}, f"eye_{eye_index}", eye_uvs[eye_index])
+
     _delete_quads(mesh, remove)
+    _smooth(mesh)
 
     min_y = min(float(position[1]) for position in mesh.positions)
     mesh.translate(v3(0, -min_y, 0))

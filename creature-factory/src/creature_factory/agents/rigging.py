@@ -1,24 +1,31 @@
-"""Rigging agent. Custom quadruped template, not Rigify."""
+"""Rigging agent. Custom quadruped or biped template, not Rigify."""
 
 from __future__ import annotations
 
 import numpy as np
 
 from creature_factory.pipeline import AgentResult, PipelineContext, dump_json
-from creature_factory.rig import QUADRUPED_BONES, bones_as_json
-from creature_factory.rig.skeleton import build_skeleton
+from creature_factory.rig import BIPED_BONES, QUADRUPED_BONES, bones_as_json
+from creature_factory.rig.skeleton import build_biped_skeleton, build_skeleton
 
 
 def run(ctx: PipelineContext) -> AgentResult:
     generated = ctx.generated
-    skeleton = build_skeleton(generated.landmarks, generated.scale)
+    if ctx.spec.archetype == "biped":
+        skeleton = build_biped_skeleton(generated.landmarks, generated.scale)
+        bones = BIPED_BONES
+        label = "biped"
+    else:
+        skeleton = build_skeleton(generated.landmarks, generated.scale)
+        bones = QUADRUPED_BONES
+        label = "quadruped"
     ctx.skeleton = skeleton
     payload = {
-        "archetype": "quadruped",
+        "archetype": label,
         "status": "generated",
         "method": "custom_template_auto_placement",
         "rigify": False,
-        "bones": bones_as_json(QUADRUPED_BONES),
+        "bones": bones_as_json(bones),
         "rest_world": {name: [round(float(v), 6) for v in point] for name, point in skeleton.rest_world.items()},
         "local_translation": {
             name: [round(float(v), 6) for v in point] for name, point in skeleton.local_translation.items()
@@ -44,4 +51,4 @@ def run(ctx: PipelineContext) -> AgentResult:
         "note": "Full weights are also stored on the glTF primitive as JOINTS_0 and WEIGHTS_0.",
     }
     dump_json(ctx.root / "rig" / "weights_summary.json", summary)
-    return AgentResult(f"placed {len(names)} quadruped bones and wrote skin weights")
+    return AgentResult(f"placed {len(names)} {label} bones and wrote skin weights")

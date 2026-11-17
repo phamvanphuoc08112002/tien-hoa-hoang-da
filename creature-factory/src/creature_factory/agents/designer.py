@@ -8,20 +8,35 @@ from creature_factory.rig import ARCHETYPE_BONES, bones_as_json
 
 def run(ctx: PipelineContext) -> AgentResult:
     info = ctx.settings.archetypes.get(ctx.spec.archetype, {})
-    anatomy_ok = (
-        ctx.spec.archetype == "quadruped"
-        and ctx.spec.leg_count == 4
-        and ctx.spec.head_count == 1
-        and ctx.spec.tail_count == 1
-        and ctx.spec.wing_count == 0
-        and ctx.spec.extra_limbs == 0
-    )
-    implemented = bool(info.get("implemented")) and anatomy_ok
-    if not anatomy_ok and ctx.spec.archetype == "quadruped":
-        reason = (
+    if ctx.spec.archetype == "quadruped":
+        anatomy_ok = (
+            ctx.spec.leg_count == 4
+            and ctx.spec.head_count == 1
+            and ctx.spec.tail_count == 1
+            and ctx.spec.wing_count == 0
+            and ctx.spec.extra_limbs == 0
+        )
+        anatomy_reason = (
             "MVP quadruped generator requires 4 legs, 1 head, 1 tail, 0 wings, and 0 extra limbs. "
             "A different skeleton was not invented for this request."
         )
+    elif ctx.spec.archetype == "biped":
+        anatomy_ok = (
+            ctx.spec.leg_count == 2
+            and ctx.spec.head_count == 1
+            and ctx.spec.wing_count == 0
+            and ctx.spec.extra_limbs == 0
+        )
+        anatomy_reason = (
+            "MVP humanoid generator requires 2 legs, 1 head, 0 wings, and 0 extra limbs. "
+            "Type 1 hero is the first supported biped pack."
+        )
+    else:
+        anatomy_ok = False
+        anatomy_reason = f"{ctx.spec.archetype} has a skeleton stub only. No mesh generator is implemented."
+    implemented = bool(info.get("implemented")) and anatomy_ok
+    if not anatomy_ok and ctx.spec.archetype in {"quadruped", "biped"}:
+        reason = anatomy_reason
     elif not info.get("implemented"):
         reason = f"{ctx.spec.archetype} has a skeleton stub only. No mesh generator is implemented."
     else:
@@ -79,4 +94,5 @@ def run(ctx: PipelineContext) -> AgentResult:
         ctx.stop_status = "rejected"
         ctx.final_status = "rejected"
         return AgentResult(reason)
-    return AgentResult("design accepted for the offline quadruped generator")
+    label = "humanoid hero" if ctx.spec.archetype == "biped" else "quadruped"
+    return AgentResult(f"design accepted for the offline {label} generator")

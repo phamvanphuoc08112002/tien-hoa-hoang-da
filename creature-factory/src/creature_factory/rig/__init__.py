@@ -50,12 +50,17 @@ BIPED_BONES: list[Bone] = [
     ("upperarm_r", "clavicle_r"),
     ("forearm_r", "upperarm_r"),
     ("hand_r", "forearm_r"),
+    ("weapon_r", "hand_r"),
     ("thigh_l", "pelvis"),
     ("calf_l", "thigh_l"),
     ("foot_l", "calf_l"),
+    ("toe_l", "foot_l"),
     ("thigh_r", "pelvis"),
     ("calf_r", "thigh_r"),
     ("foot_r", "calf_r"),
+    ("toe_r", "foot_r"),
+    ("cape_01", "chest"),
+    ("cape_02", "cape_01"),
 ]
 
 WINGED_BONES: list[Bone] = [
@@ -143,6 +148,7 @@ ARCHETYPE_BONES: dict[str, list[Bone]] = {
 }
 
 QUADRUPED_REQUIRED = [name for name, _parent in QUADRUPED_BONES]
+BIPED_REQUIRED = [name for name, _parent in BIPED_BONES]
 
 
 def bones_as_json(bones: list[Bone]) -> list[dict[str, str | None]]:
